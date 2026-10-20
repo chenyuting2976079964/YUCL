@@ -311,6 +311,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
             </div>
             <div class="srow" style="margin-top:6px">
               <select id="sc-model" title="剧本用什么文本模型（来自模型配置）"></select>
+              <select id="sc-prov" title="剧本走哪家模型网关"></select>
             </div>
             <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
               <button type="button" class="btn" id="sc-gen">生成剧本</button>
@@ -356,6 +357,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 
         <div class="row">
           <div class="field"><label class="lbl">画幅</label><select id="cb-ori"></select></div>
+          <div class="field"><label class="lbl" title="开放 harness：生成走哪家模型网关（下方「模型配置」可增删）">模型供应商</label>
+            <select id="cb-prov"></select></div>
           <div class="field"><label class="lbl">视频模型 <span class="hint">ai 引擎</span></label>
             <select id="cb-model"><option>agnes-video-2.5-flash</option><option>agnes-video-2.5</option></select></div>
           <div class="field"><label class="lbl">生图模型 <span class="hint">提示词卡</span></label>
@@ -467,6 +470,7 @@ const hue = id => { let h=210; for(const c of String(id??"")) h=(h*31 + c.charCo
 let VOICE_LIB = [];
 let OPT_VOICES = [];
 let OPT_TEXT = [];
+let OPT_PROVIDERS = [];
 const PLAY_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
 function warnBackend(msg){
   let b=$("#backend-warn");
@@ -577,6 +581,39 @@ async function loadOptions(){
     if(o.default_image_model) im.value=o.default_image_model;
   }
   OPT_TEXT = Array.isArray(o.text_models) ? o.text_models : [];
+  // ---- 开放 harness：供应商选择器（生成表单 + 剧本表单）----
+  OPT_PROVIDERS = Array.isArray(o.providers) ? o.providers : [];
+  const activeProv = o.active_provider_id || "";
+  const provLabel = p => esc(p.name || p.id) + (p.builtin ? "（内置）" : "") + (p.has_key ? "" : "（未填 Key）");
+  const fillProv = (id) => {
+    const sel = $(id);
+    if(!sel) return;
+    sel.innerHTML = OPT_PROVIDERS.length
+      ? OPT_PROVIDERS.map(p => `<option value="${esc(p.id)}">${provLabel(p)}</option>`).join("")
+      : `<option value="${esc(activeProv)}">${esc(activeProv || "当前供应商")}</option>`;
+    if(activeProv && OPT_PROVIDERS.some(p => p.id === activeProv)) sel.value = activeProv;
+  };
+  fillProv("#cb-prov"); fillProv("#sc-prov");
+  const modelsOf = (pid, k) => { const p = OPT_PROVIDERS.find(x => x.id === pid); return (p && p[k]) || []; };
+  const defaultOf = (pid, k) => { const p = OPT_PROVIDERS.find(x => x.id === pid); return (p && p[k]) || ""; };
+  const fillModels = (selId, k, dk) => {
+    const sel = $(selId), pv = $("#cb-prov");
+    const pid = pv ? pv.value : activeProv;
+    const list = modelsOf(pid, k);
+    sel.innerHTML = list.length ? list.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("") : `<option value="">（该供应商未配置${dk.replace("default_", "")}模型，请填模型配置）</option>`;
+    const dv = defaultOf(pid, dk);
+    if(dv) sel.value = dv;
+  };
+  $("#cb-prov").onchange = () => { fillModels("#cb-model", "video_models", "default_video_model"); fillModels("#cb-imgmodel", "image_models", "default_image_model"); };
+  $("#sc-prov").onchange = () => {
+    const sel = $("#sc-model"); if(!sel) return;
+    const pid = $("#sc-prov").value;
+    const list = modelsOf(pid, "text_models");
+    sel.innerHTML = list.length ? list.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("") : "";
+    const dv = defaultOf(pid, "default_text_model");
+    if(dv) sel.value = dv;
+    sel.style.display = list.length ? "" : "none";
+  };
   if(OPT_TEXT.length){
     const sel=$("#sc-model");
     if(sel){
@@ -727,7 +764,7 @@ $("#sc-gen").onclick = async () => {
   try{
     j = await (await fetch(API + "/script", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ topic, style: $("#sc-style").value, shots: +$("#sc-shots").value || 6, extra: "", model })
+      body: JSON.stringify({ topic, style: $("#sc-style").value, shots: +$("#sc-shots").value || 6, extra: "", model, provider_id: $("#sc-prov") ? $("#sc-prov").value : "" })
     })).json();
   }catch(e){ st.textContent = "✕ " + (e.message || e); btn.disabled = false; return; }
   btn.disabled = false;
@@ -1130,7 +1167,7 @@ async function cbGenImage(e, kind){
     const tid = setTimeout(()=>ctl.abort(), 240000);
     try{
       const j = await (await fetch(API + '/agnes-image', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: e.prompt, size: '1024x1024', model: ($("#cb-imgmodel") && $("#cb-imgmodel").value) || "" }), signal: ctl.signal })).json().catch(() => ({}));
+        body: JSON.stringify({ prompt: e.prompt, size: '1024x1024', model: ($("#cb-imgmodel") && $("#cb-imgmodel").value) || "", provider_id: $("#cb-prov") ? $("#cb-prov").value : "" }), signal: ctl.signal })).json().catch(() => ({}));
       clearTimeout(tid);
       if(j && j.ok){ e.path = j.local_path || ''; e.url = j.url || ''; e.imgSrc = j.url || ''; }
       else { await uiAlert('生成失败：' + ((j && (j.error || j.detail)) || '未知错误')); }
@@ -1185,6 +1222,7 @@ $('#b-charbg').onclick = e => {
   const char_voices = {};
   for(const c of cb.chars){ if(c.voice){ char_voices[c.name || "人物"] = c.voice; } }
   const body = { characters: chars, backgrounds: bgs, shots: shots,
+    provider_id: $("#cb-prov") ? $("#cb-prov").value : "",
     orientation: $('#cb-ori').value, model: $('#cb-model').value,
     char_scale: +$('#cb-scale').value || 0.68, char_pos: $('#cb-pos').value,
     subtitles: $('#cb-sub').checked, narration: $('#cb-narr').checked,

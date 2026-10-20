@@ -23,7 +23,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
-public final class VideoCore {
+public final class FfmpegCore {
     public static final Map<String, int[]> GEOM = new LinkedHashMap<String, int[]>();
     public static final Map<String, int[]> GEOM_720 = new LinkedHashMap<String, int[]>();
     private static final Pattern SLUG_RE;
@@ -33,7 +33,7 @@ public final class VideoCore {
     private static volatile Process currentFfmpeg;
     public static final Map<String, String[]> CHAR_POS;
 
-    private VideoCore() {
+    private FfmpegCore() {
     }
 
     public static Path hermesHome() {
@@ -53,7 +53,7 @@ public final class VideoCore {
     }
 
     public static int[] geom(String orientation) {
-        return VideoCore.geom(orientation, "1080p");
+        return FfmpegCore.geom(orientation, "1080p");
     }
 
     public static int[] geom(String orientation, String quality) {
@@ -84,20 +84,20 @@ public final class VideoCore {
 
     public static List<Map<String, String>> voiceCatalog() {
         ArrayList<Map<String, String>> v = new ArrayList<Map<String, String>>();
-        v.add(VideoCore.voice("zh-CN-YunxiNeural", "\u7537\u00b7\u4e91\u5e0c\uff08\u6c89\u7a33\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-YunyangNeural", "\u7537\u00b7\u4e91\u626c\uff08\u89e3\u8bf4\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-YunjianNeural", "\u7537\u00b7\u4e91\u5065\uff08\u7535\u53f0\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-YunfengNeural", "\u7537\u00b7\u4e91\u98ce\uff08\u60c5\u611f\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-XiaoxiaoNeural", "\u5973\u00b7\u6653\u6653\uff08\u4eb2\u548c\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-XiaoyiNeural", "\u5973\u00b7\u6653\u4f0a\uff08\u6d3b\u6cfc\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-XiaoshuangNeural", "\u5973\u00b7\u6653\u53cc\uff08\u4fcf\u76ae\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-YatingNeural", "\u5973\u00b7\u96c5\u5a77\uff08\u67d4\u548c\uff09", "zh-CN"));
-        v.add(VideoCore.voice("zh-CN-liaoning-XiaobeiNeural", "\u5973\u00b7\u4e1c\u5317\u00b7\u5c0f\u5317", "zh-CN"));
-        v.add(VideoCore.voice("yue-HK-HoYeuNeural", "\u7ca4\u00b7\u6653\u76c8", "yue"));
-        v.add(VideoCore.voice("en-US-AndrewMultilingualNeural", "\u7537\u00b7Andrew", "en-US"));
-        v.add(VideoCore.voice("en-US-AriaNeural", "\u5973\u00b7Aria", "en-US"));
-        v.add(VideoCore.voice("en-GB-SoniaNeural", "\u5973\u00b7Sonia\uff08\u82f1\u97f3\uff09", "en-GB"));
-        v.add(VideoCore.voice("ja-JP-NanamiNeural", "\u5973\u00b7\u4e03\u6d77\uff08\u65e5\uff09", "ja-JP"));
+        v.add(FfmpegCore.voice("zh-CN-YunxiNeural", "\u7537\u00b7\u4e91\u5e0c\uff08\u6c89\u7a33\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-YunyangNeural", "\u7537\u00b7\u4e91\u626c\uff08\u89e3\u8bf4\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-YunjianNeural", "\u7537\u00b7\u4e91\u5065\uff08\u7535\u53f0\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-YunfengNeural", "\u7537\u00b7\u4e91\u98ce\uff08\u60c5\u611f\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-XiaoxiaoNeural", "\u5973\u00b7\u6653\u6653\uff08\u4eb2\u548c\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-XiaoyiNeural", "\u5973\u00b7\u6653\u4f0a\uff08\u6d3b\u6cfc\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-XiaoshuangNeural", "\u5973\u00b7\u6653\u53cc\uff08\u4fcf\u76ae\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-YatingNeural", "\u5973\u00b7\u96c5\u5a77\uff08\u67d4\u548c\uff09", "zh-CN"));
+        v.add(FfmpegCore.voice("zh-CN-liaoning-XiaobeiNeural", "\u5973\u00b7\u4e1c\u5317\u00b7\u5c0f\u5317", "zh-CN"));
+        v.add(FfmpegCore.voice("yue-HK-HoYeuNeural", "\u7ca4\u00b7\u6653\u76c8", "yue"));
+        v.add(FfmpegCore.voice("en-US-AndrewMultilingualNeural", "\u7537\u00b7Andrew", "en-US"));
+        v.add(FfmpegCore.voice("en-US-AriaNeural", "\u5973\u00b7Aria", "en-US"));
+        v.add(FfmpegCore.voice("en-GB-SoniaNeural", "\u5973\u00b7Sonia\uff08\u82f1\u97f3\uff09", "en-GB"));
+        v.add(FfmpegCore.voice("ja-JP-NanamiNeural", "\u5973\u00b7\u4e03\u6d77\uff08\u65e5\uff09", "ja-JP"));
         return v;
     }
 
@@ -133,7 +133,7 @@ public final class VideoCore {
     private static String resolveFfmpegTool(String exe, String bareName) {
         ArrayList<Path> candidates = new ArrayList<Path>();
         candidates.add(Paths.get(System.getProperty("user.dir"), "ffmpeg", exe));
-        Path fromJar = VideoCore.ffmpegFromJarLocation(exe);
+        Path fromJar = FfmpegCore.ffmpegFromJarLocation(exe);
         if (fromJar != null) {
             candidates.add(fromJar);
         }
@@ -141,7 +141,7 @@ public final class VideoCore {
             if (!Files.isRegularFile(p, new LinkOption[0])) continue;
             return p.toString();
         }
-        return VideoCore.findOnPath(bareName);
+        return FfmpegCore.findOnPath(bareName);
     }
 
     private static Path ffmpegFromJarLocation(String tool) {
@@ -150,7 +150,7 @@ public final class VideoCore {
             Path root;
             Path candidate;
             int bang;
-            URL loc = VideoCore.class.getProtectionDomain().getCodeSource().getLocation();
+            URL loc = FfmpegCore.class.getProtectionDomain().getCodeSource().getLocation();
             if (loc == null) {
                 return null;
             }
@@ -203,7 +203,7 @@ public final class VideoCore {
     }
 
     public static Map<String, Object> runFfmpeg(List<String> args, String workdir) {
-        String ff = VideoCore.ffmpeg();
+        String ff = FfmpegCore.ffmpeg();
         if (ff == null || ff.isEmpty()) {
             return Map.of("ok", false, "error", "ffmpeg not found on PATH");
         }
@@ -279,7 +279,7 @@ public final class VideoCore {
     }
 
     public static Double ffprobeDuration(String path) {
-        String fp = VideoCore.ffprobe();
+        String fp = FfmpegCore.ffprobe();
         if (fp == null || fp.isEmpty() || path == null) {
             return null;
         }
@@ -307,7 +307,7 @@ public final class VideoCore {
         String[] p2;
         String[] p1;
         boolean hasC2;
-        if (VideoCore.ffmpeg() == null) {
+        if (FfmpegCore.ffmpeg() == null) {
             return Map.of("ok", false, "error", "ffmpeg not found on PATH");
         }
         dur = Math.max(1.0, dur);
@@ -417,13 +417,13 @@ public final class VideoCore {
         args.add("-movflags");
         args.add("+faststart");
         args.add(out);
-        Map<String, Object> p = VideoCore.runFfmpeg(args, null);
+        Map<String, Object> p = FfmpegCore.runFfmpeg(args, null);
         boolean ok = Boolean.TRUE.equals(p.get("ok")) && Files.exists(Paths.get(out, new String[0]), new LinkOption[0]);
         return ok ? Map.of("ok", true) : Map.of("ok", false, "error", p.getOrDefault("error", "local compose failed"));
     }
 
     public static Map<String, Object> normalize(String clip, String audio, String out, int w, int h, int fps, double dur) {
-        if (VideoCore.ffmpeg() == null) {
+        if (FfmpegCore.ffmpeg() == null) {
             return Map.of("ok", false, "error", "ffmpeg not found");
         }
         dur = Math.max(1.0, dur);
@@ -471,7 +471,7 @@ public final class VideoCore {
         args.add("-movflags");
         args.add("+faststart");
         args.add(out);
-        VideoCore.runFfmpeg(args, null);
+        FfmpegCore.runFfmpeg(args, null);
         boolean ok = Files.exists(Paths.get(out, new String[0]), new LinkOption[0]);
         return ok ? Map.of("ok", true) : Map.of("ok", false, "error", "normalize failed");
     }
@@ -484,7 +484,7 @@ public final class VideoCore {
         }
         Files.writeString(Path.of(lst, new String[0]), sb.toString(), StandardCharsets.UTF_8);
         ArrayList<String> args = new ArrayList<String>(List.of("-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", out));
-        return VideoCore.runFfmpeg(args, null);
+        return FfmpegCore.runFfmpeg(args, null);
     }
 
     public static Map<String, Object> mixBgm(String base, String bgm, String out, double vol) {
@@ -492,11 +492,11 @@ public final class VideoCore {
                 "[1:a]atrim=0,volume=" + vol + ",asetpts=PTS-STARTPTS[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0.5:normalize=0[a]",
                 "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-ac", "2",
                 "-movflags", "+faststart", out);
-        return VideoCore.runFfmpeg(args, null);
+        return FfmpegCore.runFfmpeg(args, null);
     }
 
     public static Map<String, Object> burnSrt(String base, String srt, String out) {
-        return VideoCore.burnSrt(base, srt, out, 16);
+        return FfmpegCore.burnSrt(base, srt, out, 16);
     }
 
     public static Map<String, Object> burnSrt(String base, String srt, String out, int fontSize) {
@@ -506,7 +506,7 @@ public final class VideoCore {
         // final file stays playable inside the JavaFX WebView player.
         List<String> args = List.of("-i", base, "-vf", vf, "-c:v", "libx264", "-preset", "veryfast",
                 "-crf", "23", "-profile:v", "main", "-movflags", "+faststart", "-c:a", "copy", out);
-        return VideoCore.runFfmpeg(args, Paths.get(srt, new String[0]).toAbsolutePath().getParent().toString());
+        return FfmpegCore.runFfmpeg(args, Paths.get(srt, new String[0]).toAbsolutePath().getParent().toString());
     }
 
     public static void writeSrt(List<Map<String, Object>> shots, String out) throws Exception {
@@ -514,12 +514,12 @@ public final class VideoCore {
         double t = 0.0;
         int i = 1;
         for (Map<String, Object> sc : shots) {
-            String cap = VideoCore.str(sc.get("caption")).trim();
+            String cap = FfmpegCore.str(sc.get("caption")).trim();
             if (!cap.isEmpty()) {
-                sb.append(i).append('\n').append(VideoCore.srtTs(t)).append(" --> ").append(VideoCore.srtTs(t + VideoCore.num(sc.get("duration")))).append('\n').append(cap).append("\n\n");
+                sb.append(i).append('\n').append(FfmpegCore.srtTs(t)).append(" --> ").append(FfmpegCore.srtTs(t + FfmpegCore.num(sc.get("duration")))).append('\n').append(cap).append("\n\n");
                 ++i;
             }
-            t += VideoCore.num(sc.get("duration"));
+            t += FfmpegCore.num(sc.get("duration"));
         }
         Files.writeString(Path.of(out, new String[0]), sb.toString(), StandardCharsets.UTF_8);
     }
@@ -599,11 +599,11 @@ public final class VideoCore {
         VOCES = Map.of("zh", "zh-CN-YunxiNeural", "zh-CN", "zh-CN-YunxiNeural", "zh-TW", "zh-TW-GuanxinNeural", "en", "en-US-AndrewMultilingualNeural", "ja", "ja-JP-NanamiNeural");
         String dir = System.getenv("AI_VIDEO_FFMPEG_DIR");
         if (dir != null && !dir.isBlank()) {
-            ffmpegBinary = VideoCore.firstRegularFile(Paths.get(dir, "ffmpeg.exe"), Paths.get(dir, "ffmpeg"));
-            ffprobeBinary = VideoCore.firstRegularFile(Paths.get(dir, "ffprobe.exe"), Paths.get(dir, "ffprobe"));
+            ffmpegBinary = FfmpegCore.firstRegularFile(Paths.get(dir, "ffmpeg.exe"), Paths.get(dir, "ffmpeg"));
+            ffprobeBinary = FfmpegCore.firstRegularFile(Paths.get(dir, "ffprobe.exe"), Paths.get(dir, "ffprobe"));
         } else {
-            ffmpegBinary = VideoCore.resolveFfmpegTool("ffmpeg.exe", "ffmpeg");
-            ffprobeBinary = VideoCore.resolveFfmpegTool("ffprobe.exe", "ffprobe");
+            ffmpegBinary = FfmpegCore.resolveFfmpegTool("ffmpeg.exe", "ffmpeg");
+            ffprobeBinary = FfmpegCore.resolveFfmpegTool("ffprobe.exe", "ffprobe");
         }
         CHAR_POS = Map.of("bottom-left", new String[]{"40", "main_h-overlay_h-40"}, "bottom-center", new String[]{"(main_w-overlay_w)/2", "main_h-overlay_h-40"}, "bottom-right", new String[]{"main_w-overlay_w-40", "main_h-overlay_h-40"}, "center", new String[]{"(main_w-overlay_w)/2", "(main_h-overlay_h)/2"});
     }

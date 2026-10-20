@@ -20,36 +20,36 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 
 @SpringBootApplication
-public class AiVideoApp {
+public class YuclApp {
     public static void main(String[] args) {
         Path logFile = DataDirs.dataDir().resolve("app.log");
         System.setProperty("LOG_FILE", logFile.toString());
         System.setProperty("LOG_FILE_PATTERN", logFile.toString().replace("app.log", "app.%d{yyyyMMdd}.%i.log"));
-        String port = AiVideoApp.effectivePort();
+        String port = YuclApp.effectivePort();
         boolean noBrowser = "1".equals(System.getenv("AI_VIDEO_NO_BROWSER"));
         boolean gui = !noBrowser && !"0".equals(System.getenv("YUCL_GUI"));
         String url = "http://127.0.0.1:" + port + "/";
-        if (!noBrowser && AiVideoApp.alreadyRunning(port)) {
+        if (!noBrowser && YuclApp.alreadyRunning(port)) {
             System.err.println("YUCL is already running on port " + port + " \u2014 opening a window (single-instance).");
             if (gui) {
                 AppShell.launch(url, null);
                 return;
             }
-            AiVideoApp.openBrowser(url);
+            YuclApp.openBrowser(url);
             System.exit(0);
         }
-        if (AiVideoApp.portBusy(port)) {
+        if (YuclApp.portBusy(port)) {
             System.err.println("\u65e0\u6cd5\u542f\u52a8 YUCL\uff1a\u7aef\u53e3 " + port + " \u5df2\u88ab\u5176\u4ed6\u7a0b\u5e8f\u5360\u7528\uff08\u4e0d\u662f YUCL\uff09\u3002");
             System.err.println("\u8bf7\u5173\u95ed\u5360\u7528\u8be5\u7aef\u53e3\u7684\u7a0b\u5e8f\u540e\u91cd\u8bd5\uff1b\u6216\u8bbe\u7f6e\u73af\u5883\u53d8\u91cf SERVER_PORT=8792 \u7b49\u5176\u5b83\u7aef\u53e3\u518d\u542f\u52a8\u3002");
             System.exit(1);
         }
-        ConfigurableApplicationContext ctx = SpringApplication.run(AiVideoApp.class, (String[])args);
+        ConfigurableApplicationContext ctx = SpringApplication.run(YuclApp.class, (String[])args);
         String livePort = ctx.getEnvironment().getProperty("server.port", port);
         String liveUrl = "http://127.0.0.1:" + livePort + "/";
         if (gui) {
             AppShell.launch(liveUrl, () -> ctx.close());
         } else if (!noBrowser) {
-            AiVideoApp.openBrowser(liveUrl);
+            YuclApp.openBrowser(liveUrl);
         }
     }
 

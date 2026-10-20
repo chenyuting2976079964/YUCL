@@ -7,7 +7,7 @@
  */
 package com.aivideo;
 
-import com.aivideo.Agnesa;
+import com.aivideo.ModelGateway;
 import com.aivideo.DataDirs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -96,6 +96,19 @@ public final class Providers {
         }
     }
 
+    public static Map<String, Object> byid(String id) {
+        Map<String, Object> st = Providers.state();
+        String want = id == null ? "" : id.trim();
+        if (want.isEmpty()) {
+            return Providers.active();
+        }
+        for (Map<String, Object> p : (List<Map<String, Object>>)st.get("providers")) {
+            if (want.equals(String.valueOf(p.get("id")))) {
+                return p;
+            }
+        }
+        return Providers.active();
+    }
     public static Map<String, Object> active() {
         Map<String, Object> st = Providers.state();
         String want = String.valueOf(st.get("active"));
@@ -113,18 +126,18 @@ public final class Providers {
         b.put("builtin", true);
         String base = "https://apihub.agnes-ai.com/v1";
         String key = "";
-        List<String[]> eps = Agnesa.endpoints();
+        List<String[]> eps = ModelGateway.endpoints();
         if (!eps.isEmpty()) {
             base = eps.get(0)[0];
             key = eps.get(0)[1];
         }
         b.put("base_url", base);
         b.put("api_key", key);
-        b.put("image_models", Agnesa.IMAGE_MODELS);
+        b.put("image_models", ModelGateway.IMAGE_MODELS);
         b.put("default_image_model", "agnes-image-2.5-flash");
-        b.put("video_models", Agnesa.VIDEO_MODELS);
+        b.put("video_models", ModelGateway.VIDEO_MODELS);
         b.put("default_video_model", "agnes-video-2.5-flash");
-        b.put("text_models", Agnesa.TEXT_MODELS);
+        b.put("text_models", ModelGateway.TEXT_MODELS);
         b.put("default_text_model", "agnes-3.0-flash");
         return b;
     }
@@ -162,17 +175,17 @@ public final class Providers {
 
     public static List<String> imageModels(Map<String, Object> p) {
         List<String> v = Providers.modelList(p, "image_models");
-        return v.isEmpty() ? Agnesa.IMAGE_MODELS : v;
+        return v.isEmpty() ? ModelGateway.IMAGE_MODELS : v;
     }
 
     public static List<String> videoModels(Map<String, Object> p) {
         List<String> v = Providers.modelList(p, "video_models");
-        return v.isEmpty() ? Agnesa.VIDEO_MODELS : v;
+        return v.isEmpty() ? ModelGateway.VIDEO_MODELS : v;
     }
 
     public static List<String> textModels(Map<String, Object> p) {
         List<String> v = Providers.modelList(p, "text_models");
-        return v.isEmpty() ? Agnesa.TEXT_MODELS : v;
+        return v.isEmpty() ? ModelGateway.TEXT_MODELS : v;
     }
 
     public static String defaultImageModel(Map<String, Object> p) {

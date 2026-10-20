@@ -52,7 +52,7 @@
         <artifactId>spring-boot-maven-plugin</artifactId>
         <version>${spring-boot.version}</version>
         <configuration>
-          <mainClass>com.aivideo.AiVideoApp</mainClass>
+          <mainClass>com.aivideo.YuclApp</mainClass>
         </configuration>
         <executions>
           <execution>

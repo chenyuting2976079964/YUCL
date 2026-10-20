@@ -6,7 +6,7 @@
         </encoder>
     </appender>
 
-    <!-- Paths come from system properties set in AiVideoApp.main (DataDirs)
+    <!-- Paths come from system properties set in YuclApp.main (DataDirs)
          so the log follows the resolved data dir on ANY machine. -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_FILE}</file>

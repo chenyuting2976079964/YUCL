@@ -30,12 +30,12 @@
  */
 package com.aivideo;
 
-import com.aivideo.Agnesa;
-import com.aivideo.CharBg;
+import com.aivideo.ModelGateway;
+import com.aivideo.CharBgComposer;
 import com.aivideo.DataDirs;
 import com.aivideo.Jobs;
 import com.aivideo.Providers;
-import com.aivideo.VideoCore;
+import com.aivideo.FfmpegCore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,7 +101,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping(value={"/api/plugins/ai-video"})
-public class Api {
+public class ApiController {
     private static final long MAX_MEDIA_BYTES = 0x2800000L;
     private static final long MAX_UPLOAD_BYTES = 0x3200000L;
     private static final Set<String> VOICE_EXTS = Set.of(".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".wma", ".opus");
@@ -127,7 +127,7 @@ public class Api {
 
     @PostConstruct
     void resolveDataDirs() {
-        Api.startBackupTempSweeper();
+        ApiController.startBackupTempSweeper();
         this.voicesDir = DataDirs.usableDir(this.voicesDir, "voices");
         this.imagesDir = DataDirs.usableDir(this.imagesDir, "images");
         this.musicDir = DataDirs.usableDir(this.musicDir, "music");
@@ -140,15 +140,15 @@ public class Api {
     @GetMapping(value={"/options"})
     public Map<String, Object> options() {
         LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
-        out.put("orientations", VideoCore.GEOM.entrySet().stream().map(e -> {
+        out.put("orientations", FfmpegCore.GEOM.entrySet().stream().map(e -> {
             LinkedHashMap<String, Object> o = new LinkedHashMap<String, Object>();
             o.put("key", e.getKey());
             o.put("label", e.getKey());
             o.put("size", ((int[])e.getValue())[0] + "x" + ((int[])e.getValue())[1]);
             return o;
         }).toList());
-        out.put("voices", VideoCore.voiceCatalog());
-        out.put("default_voice", VideoCore.VOCES.get("zh"));
+        out.put("voices", FfmpegCore.voiceCatalog());
+        out.put("default_voice", FfmpegCore.VOCES.get("zh"));
         out.put("default_style", "cinematic");
         out.put("image_models", Providers.imageModels(Providers.active()));
         out.put("video_models", Providers.videoModels(Providers.active()));
@@ -157,13 +157,32 @@ public class Api {
         out.put("text_models", Providers.textModels(Providers.active()));
         out.put("default_text_model", Providers.defaultTextModel(Providers.active()));
         out.put("active_provider", Providers.str(Providers.active(), "name"));
-        out.put("agnesa_ok", Boolean.TRUE.equals(Agnesa.providerStatus().get("ok")));
+        // 开放 harness：全部供应商（含内置），UI 生成表单可自选供应商与模型
+        Map<String, Object> st = Providers.state();
+        java.util.ArrayList<Map<String, Object>> pout = new java.util.ArrayList<>();
+        for (Map<String, Object> pp : (java.util.List<Map<String, Object>>)st.get("providers")) {
+            Map<String, Object> o2 = new java.util.LinkedHashMap<>();
+            o2.put("id", String.valueOf(pp.get("id")));
+            o2.put("name", Providers.str(pp, "name"));
+            o2.put("builtin", Boolean.TRUE.equals(pp.get("builtin")));
+            o2.put("has_key", !Providers.str(pp, "api_key").isEmpty());
+            o2.put("image_models", Providers.imageModels(pp));
+            o2.put("default_image_model", Providers.defaultImageModel(pp));
+            o2.put("video_models", Providers.videoModels(pp));
+            o2.put("default_video_model", Providers.defaultVideoModel(pp));
+            o2.put("text_models", Providers.textModels(pp));
+            o2.put("default_text_model", Providers.defaultTextModel(pp));
+            pout.add(o2);
+        }
+        out.put("providers", pout);
+        out.put("active_provider_id", String.valueOf(st.get("active")));
+        out.put("agnesa_ok", Boolean.TRUE.equals(ModelGateway.providerStatus().get("ok")));
         return out;
     }
 
     @GetMapping(value={"/agnesa-status"})
     public Map<String, Object> agnesaStatus() {
-        return Agnesa.providerStatus();
+        return ModelGateway.providerStatus();
     }
 
     @GetMapping(value={"/provider-config"})
@@ -223,9 +242,9 @@ public class Api {
         String key = String.valueOf(prov.getOrDefault("api_key", "")).trim();
         String builtinNote = "";
         // 内置供应商（如 Agnes）的 key 不在 provider-config.json 里（在 config.yaml/env），
-        // 卡片上 key 为空时回落到 Agnesa 内置凭据，否则永远提示"需要 API Key"。
+        // 卡片上 key 为空时回落到 ModelGateway 内置凭据，否则永远提示"需要 API Key"。
         if (base.isEmpty() || key.isEmpty()) {
-            List<String[]> eps = Agnesa.providerEndpoints();
+            List<String[]> eps = ModelGateway.providerEndpoints();
             if (!eps.isEmpty()) {
                 if (base.isEmpty()) {
                     base = eps.get(0)[0];
@@ -293,20 +312,21 @@ public class Api {
         }
         n = Math.max(3, Math.min(15, n));
         String modelOverride = String.valueOf(body.getOrDefault("model", "")).trim();
+        String providerId = String.valueOf(body.getOrDefault("provider_id", "")).trim();
         if (topic.isEmpty()) {
             return Map.of("ok", false, "error", "\u8bf7\u8f93\u5165\u6545\u4e8b\u4e3b\u9898");
         }
-        Map<String, Object> prov = Providers.active();
+        Map<String, Object> prov = Providers.byid(providerId);
         boolean builtin = Boolean.TRUE.equals(prov.get("builtin"));
         String string = model = !modelOverride.isEmpty() ? modelOverride : Providers.defaultTextModel(prov);
         if (model.isEmpty() || !builtin && !Providers.modelList(prov, "text_models").stream().anyMatch(x -> !x.isEmpty()) && Providers.str(prov, "default_text_model").isEmpty()) {
             return Map.of("ok", false, "error", "\u5f53\u524d\u4f9b\u5e94\u5546\u6ca1\u6709\u53ef\u7528\u7684\u6587\u672c\u6a21\u578b\u2014\u2014\u8bf7\u5728\u300c\u6a21\u578b\u914d\u7f6e\u300d\u91cc\u586b\u5199\u6587\u672c\u6a21\u578b\uff08\u70b9\u300c\u6d4b\u8bd5\u8fde\u63a5\u300d\u53ef\u62c9\u53d6\u6a21\u578b\u5217\u8868\uff09");
         }
-        List<String[]> eps = Agnesa.providerEndpoints();
+        List<String[]> eps = ModelGateway.providerEndpoints(providerId);
         if (eps.isEmpty()) {
             return Map.of("ok", false, "error", "\u5f53\u524d\u4f9b\u5e94\u5546\u6ca1\u6709\u53ef\u7528\u7684 API Key");
         }
-        String host = Agnesa.splitHost(eps.get(0)[0]);
+        String host = ModelGateway.splitHost(eps.get(0)[0]);
         String sys = "\u4f60\u662f\u64c5\u957f\u5199\u6296\u97f3/\u89c6\u9891\u53f7\u7206\u6b3e\u77ed\u89c6\u9891\u7684\u7f16\u5267\u3002\u6839\u636e\u7528\u6237\u4e3b\u9898\u5199\u4e00\u4e2a\u77ed\u89c6\u9891\u5267\u672c\uff0c\u53ea\u8f93\u51fa\u4e00\u4e2a JSON \u5bf9\u8c61\uff08\u4e0d\u8981\u89e3\u91ca\u3001\u4e0d\u8981 markdown \u4ee3\u7801\u5757\uff09\uff0c\u7ed3\u6784\u56fa\u5b9a\u4e3a\uff1a\n{\"title\":\"\u6807\u9898\",\"logline\":\"\u4e00\u53e5\u8bdd\u5356\u70b9\",\"characters\":[{\"name\":\"\u89d2\u8272\u540d\",\"appearance\":\"\u4f9b\u751f\u56fe\u7684\u5916\u89c2\u63cf\u8ff0\uff08\u4e2d\u6587\u3001\u5177\u4f53\u3001\u753b\u9762\u611f\uff0c\u4e0d\u542b\u5c4f\u5e55\u6587\u5b57\uff09\",\"voice\":\"\u97f3\u8272\u63cf\u8ff0\uff08\u53ef\u9009\uff09\"}],\"scenes\":[{\"character\":\"\u672c\u955c\u51fa\u955c\u89d2\u8272\u540d\uff08\u65e0\u89d2\u8272\u5219\u7a7a\u5b57\u7b26\u4e32\uff09\",\"background\":\"\u4f9b\u751f\u56fe\u7684\u573a\u666f/\u80cc\u666f\u63cf\u8ff0\",\"shot\":\"\u4f9b\u751f\u56fe\u7684\u753b\u9762\u63cf\u8ff0\",\"dialogue\":\"\u672c\u955c\u53f0\u8bcd\u6216\u65c1\u767d\uff08\u53e3\u8bed\u5316\u3001\u6709\u94a9\u5b50\uff09\",\"seconds\":5}]}\n\u8981\u6c42\uff1ascenes \u957f\u5ea6\u5fc5\u987b\u7b49\u4e8e\u7528\u6237\u6307\u5b9a\u955c\u5934\u6570\uff1bcharacters \u6700\u591a 3 \u4e2a\uff1b\u6bcf\u4e2a\u955c\u5934\u7684 background/shot/dialogue \u975e\u7a7a\uff1bseconds \u53d6 4-12 \u7684\u6574\u6570\uff1bscenes \u91cc\u5f15\u7528\u7684 character \u5fc5\u987b\u6765\u81ea characters\u3002";
         String user = "\u4e3b\u9898\uff1a" + topic + "\n\u98ce\u683c\uff1a" + (style.isEmpty() ? "\u9ed8\u8ba4" : style) + "\n\u955c\u5934\u6570\uff1a" + n + (String)(extra.isEmpty() ? "" : "\n\u989d\u5916\u8981\u6c42\uff1a" + extra);
         try {
@@ -332,13 +352,13 @@ public class Api {
             if (content.isEmpty()) {
                 return Map.of("ok", false, "error", "\u6a21\u578b\u8fd4\u56de\u4e3a\u7a7a");
             }
-            JsonNode parsed = Api.extractJson(content);
+            JsonNode parsed = ApiController.extractJson(content);
             if (parsed == null) {
                 return Map.of("ok", true, "script", null, "raw", content, "model", model, "provider", Providers.str(prov, "name"), "note", "\u6a21\u578b\u672a\u8fd4\u56de\u53ef\u89e3\u6790\u7684 JSON\uff0c\u5df2\u7ed9\u51fa\u539f\u6587\uff0c\u53ef\u590d\u5236\u540e\u624b\u52a8\u586b\u5165\u8868\u5355");
             }
             LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
             out.put("ok", true);
-            out.put("script", Api.normalizeScript(parsed, n));
+            out.put("script", ApiController.normalizeScript(parsed, n));
             out.put("model", model);
             out.put("provider", Providers.str(prov, "name"));
             return out;
@@ -412,14 +432,16 @@ public class Api {
 
     @PostMapping(value={"/agnes-image"})
     public Map<String, Object> agnesImage(@RequestBody AgnesImageRequest req) {
-        return Agnesa.generateImage(req.prompt, req.size, req.model, null);
+        Map<String, Object> prov = Providers.byid(req.providerId);
+        String model = req.model == null || req.model.trim().isEmpty() ? Providers.defaultImageModel(prov) : req.model.trim();
+        return ModelGateway.generateImage(req.prompt, req.size, model, null, req.providerId);
     }
 
     @PostMapping(value={"/images/upload"})
     public ResponseEntity<Map<String, Object>> imagesUpload(@RequestParam(value="file") MultipartFile file) {
         byte[] data;
         String original = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
-        String ext = Api.extOf(original).toLowerCase(Locale.ROOT);
+        String ext = ApiController.extOf(original).toLowerCase(Locale.ROOT);
         if (!IMG_EXTS.contains(ext)) {
             return ResponseEntity.badRequest().body(Map.of("ok", false, "detail", "unsupported image type '" + ext + "'; allowed: " + String.join((CharSequence)", ", IMG_EXTS)));
         }
@@ -438,7 +460,7 @@ public class Api {
         Path dir = Paths.get(this.imagesDir, new String[0]);
         try {
             Files.createDirectories(dir, new FileAttribute[0]);
-            String stem = VideoCore.safeStem(original, "image");
+            String stem = FfmpegCore.safeStem(original, "image");
             Path dest = dir.resolve(stem + ext);
             int n = 1;
             while (Files.exists(dest, new LinkOption[0])) {
@@ -474,12 +496,12 @@ public class Api {
             try (Stream<Path> stream2 = Files.list(dir);){
                 List<Path> files = stream2.sorted().toList();
                 for (Path p : files) {
-                    if (!Files.isRegularFile(p, new LinkOption[0]) || !VOICE_EXTS.contains(Api.extOf(p.toString()).toLowerCase(Locale.ROOT))) continue;
+                    if (!Files.isRegularFile(p, new LinkOption[0]) || !VOICE_EXTS.contains(ApiController.extOf(p.toString()).toLowerCase(Locale.ROOT))) continue;
                     LinkedHashMap<String, Object> e = new LinkedHashMap<String, Object>();
                     e.put("name", p.getFileName().toString());
                     e.put("path", p.toString());
                     e.put("size", Files.size(p));
-                    Double d = VideoCore.ffprobeDuration(p.toString());
+                    Double d = FfmpegCore.ffprobeDuration(p.toString());
                     e.put("duration_s", d == null ? 0.0 : (double)Math.round(d * 100.0) / 100.0);
                     out.add(e);
                 }
@@ -499,7 +521,7 @@ public class Api {
     public ResponseEntity<Map<String, Object>> voicesUpload(@RequestParam(value="file") MultipartFile file) {
         byte[] data;
         String original = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
-        String ext = Api.extOf(original).toLowerCase(Locale.ROOT);
+        String ext = ApiController.extOf(original).toLowerCase(Locale.ROOT);
         if (!VOICE_EXTS.contains(ext)) {
             return ResponseEntity.badRequest().body(Map.of("ok", false, "detail", "unsupported audio type '" + ext + "'; allowed: " + String.join((CharSequence)", ", VOICE_EXTS)));
         }
@@ -518,14 +540,14 @@ public class Api {
         try {
             Path dir = Paths.get(this.voicesDir, new String[0]);
             Files.createDirectories(dir, new FileAttribute[0]);
-            String stem = VideoCore.safeStem(original, "voice");
+            String stem = FfmpegCore.safeStem(original, "voice");
             Path dest = dir.resolve(stem + ext);
             int n = 1;
             while (Files.exists(dest, new LinkOption[0])) {
                 dest = dir.resolve(stem + "_" + n++ + ext);
             }
             Files.write(dest, data, new OpenOption[0]);
-            Double d = VideoCore.ffprobeDuration(dest.toString());
+            Double d = FfmpegCore.ffprobeDuration(dest.toString());
             LinkedHashMap<String, Object> entry = new LinkedHashMap<String, Object>();
             entry.put("name", dest.getFileName().toString());
             entry.put("path", dest.toString());
@@ -558,12 +580,12 @@ public class Api {
             try (Stream<Path> stream2 = Files.list(dir);){
                 List<Path> files = stream2.sorted().toList();
                 for (Path p : files) {
-                    if (!Files.isRegularFile(p, new LinkOption[0]) || !MUSIC_EXTS.contains(Api.extOf(p.toString()).toLowerCase(Locale.ROOT))) continue;
+                    if (!Files.isRegularFile(p, new LinkOption[0]) || !MUSIC_EXTS.contains(ApiController.extOf(p.toString()).toLowerCase(Locale.ROOT))) continue;
                     LinkedHashMap<String, Object> e = new LinkedHashMap<String, Object>();
                     e.put("name", p.getFileName().toString());
                     e.put("path", p.toString());
                     e.put("size", Files.size(p));
-                    Double d = VideoCore.ffprobeDuration(p.toString());
+                    Double d = FfmpegCore.ffprobeDuration(p.toString());
                     e.put("duration_s", d == null ? 0.0 : (double)Math.round(d * 100.0) / 100.0);
                     out.add(e);
                 }
@@ -583,7 +605,7 @@ public class Api {
     public ResponseEntity<Map<String, Object>> musicUpload(@RequestParam(value="file") MultipartFile file) {
         byte[] data;
         String original = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
-        String ext = Api.extOf(original).toLowerCase(Locale.ROOT);
+        String ext = ApiController.extOf(original).toLowerCase(Locale.ROOT);
         if (!MUSIC_EXTS.contains(ext)) {
             return ResponseEntity.badRequest().body(Map.of("ok", false, "detail", "unsupported music type '" + ext + "'; allowed: " + String.join((CharSequence)", ", MUSIC_EXTS)));
         }
@@ -602,7 +624,7 @@ public class Api {
         try {
             Path dir = Paths.get(this.musicDir, new String[0]);
             Files.createDirectories(dir, new FileAttribute[0]);
-            String stem = VideoCore.safeStem(original, "bgm");
+            String stem = FfmpegCore.safeStem(original, "bgm");
             Path dest = dir.resolve(stem + ext);
             int n = 1;
             while (Files.exists(dest, new LinkOption[0])) {
@@ -705,15 +727,15 @@ public class Api {
     }
 
     private String startJob(Map<String, Object> params) {
-        List<Map<String, Object>> shots = Api.asMapList(params.get("shots"));
-        String firstText = shots.isEmpty() ? "" : VideoCore.str(shots.get(0).get("text"));
+        List<Map<String, Object>> shots = ApiController.asMapList(params.get("shots"));
+        String firstText = shots.isEmpty() ? "" : FfmpegCore.str(shots.get(0).get("text"));
         String snippet = firstText.substring(0, Math.min(24, firstText.length()));
         LinkedHashMap<String, Object> meta = new LinkedHashMap<String, Object>();
         meta.put("topic", "charbg:" + (snippet.isEmpty() ? "\u4eba\u7269\u80cc\u666f" : snippet));
         meta.put("style", "char-bg");
-        meta.put("orientation", VideoCore.str(params.get("orientation")));
+        meta.put("orientation", FfmpegCore.str(params.get("orientation")));
         meta.put("status", "running");
-        meta.put("progress", Api.progressMap(0, shots.size() + 3, "\u6392\u961f\u4e2d\u2026", 0));
+        meta.put("progress", ApiController.progressMap(0, shots.size() + 3, "\u6392\u961f\u4e2d\u2026", 0));
         meta.put("params", params);
         meta.put("started_at", System.currentTimeMillis() / 1000L);
         String jobId = Jobs.register(meta);
@@ -727,13 +749,13 @@ public class Api {
      * WARNING - Removed try catching itself - possible behaviour change.
      */
     private void runJob(final String jobId, Map<String, Object> params, final AtomicBoolean cancel) {
-        int total = Api.asMapList(params.get("shots")).size() + 3;
+        int total = ApiController.asMapList(params.get("shots")).size() + 3;
         boolean holdSem = false;
         try {
             Map<String, Object> result;
             holdSem = RENDER_SEM.tryAcquire();
             if (!holdSem) {
-                Jobs.update(jobId, Map.of("progress", Api.progressMap(0, total, "\u6392\u961f\u4e2d\uff08\u524d\u9762\u8fd8\u6709\u4efb\u52a1\u5728\u6e32\u67d3\uff09", 0)));
+                Jobs.update(jobId, Map.of("progress", ApiController.progressMap(0, total, "\u6392\u961f\u4e2d\uff08\u524d\u9762\u8fd8\u6709\u4efb\u52a1\u5728\u6e32\u67d3\uff09", 0)));
                 try {
                     RENDER_SEM.acquire();
                     holdSem = true;
@@ -748,56 +770,57 @@ public class Api {
                     return;
                 }
             }
-            List<Map<String, Object>> shots = Api.asMapList(params.get("shots"));
-            List<Map<String, Object>> chars = Api.asMapList(params.get("characters"));
-            List<Map<String, Object>> bgs = Api.asMapList(params.get("backgrounds"));
-            String orientation = VideoCore.str(params.get("orientation")).isEmpty() ? "vertical" : VideoCore.str(params.get("orientation"));
+            List<Map<String, Object>> shots = ApiController.asMapList(params.get("shots"));
+            List<Map<String, Object>> chars = ApiController.asMapList(params.get("characters"));
+            List<Map<String, Object>> bgs = ApiController.asMapList(params.get("backgrounds"));
+            String orientation = FfmpegCore.str(params.get("orientation")).isEmpty() ? "vertical" : FfmpegCore.str(params.get("orientation"));
             boolean subtitles = Boolean.TRUE.equals(params.get("subtitles"));
-            String bgm = VideoCore.str(params.get("bgm"));
-            double bgmVol = Api.num(params.get("bgm_vol"), 0.18);
+            String bgm = FfmpegCore.str(params.get("bgm"));
+            double bgmVol = ApiController.num(params.get("bgm_vol"), 0.18);
             boolean narration = !Boolean.FALSE.equals(params.get("narration"));
-            Map<String, String> voices = Api.strMap(params.get("voices"));
-            Map<String, String> localAudio = Api.strMap(params.get("local_audio"));
-            Map<String, String> charAudio = Api.strMap(params.get("char_audio"));
-            String defaultVoice = VideoCore.str(params.get("default_voice"));
-            String model = VideoCore.str(params.get("model"));
-            int fps = Api.num(params.get("fps"), 30);
-            double charScale = Api.num(params.get("char_scale"), 0.68);
-            String charPos = VideoCore.str(params.get("char_pos")).isEmpty() ? "bottom-left" : VideoCore.str(params.get("char_pos"));
-            String styleHint = VideoCore.str(params.get("style_hint")).isEmpty() ? "cinematic, natural motion, no on-screen text" : VideoCore.str(params.get("style_hint"));
-            String outDir = VideoCore.str(params.get("out_dir")).isEmpty() ? VideoCore.assetRoot().resolve("ui").toString() : VideoCore.str(params.get("out_dir"));
-            double pollDeadlineS = Api.num(params.get("poll_deadline_s"), 900.0);
-            int queueRetries = Api.num(params.get("queue_retries"), 4);
-            String quality = VideoCore.str(params.get("quality")).isEmpty() ? "1080p" : VideoCore.str(params.get("quality"));
-            int subFontSize = switch (VideoCore.str(params.get("sub_size")).toLowerCase(Locale.ROOT)) {
+            Map<String, String> voices = ApiController.strMap(params.get("voices"));
+            Map<String, String> localAudio = ApiController.strMap(params.get("local_audio"));
+            Map<String, String> charAudio = ApiController.strMap(params.get("char_audio"));
+            String defaultVoice = FfmpegCore.str(params.get("default_voice"));
+            String model = FfmpegCore.str(params.get("model"));
+            String providerId = FfmpegCore.str(params.get("provider_id"));
+            int fps = ApiController.num(params.get("fps"), 30);
+            double charScale = ApiController.num(params.get("char_scale"), 0.68);
+            String charPos = FfmpegCore.str(params.get("char_pos")).isEmpty() ? "bottom-left" : FfmpegCore.str(params.get("char_pos"));
+            String styleHint = FfmpegCore.str(params.get("style_hint")).isEmpty() ? "cinematic, natural motion, no on-screen text" : FfmpegCore.str(params.get("style_hint"));
+            String outDir = FfmpegCore.str(params.get("out_dir")).isEmpty() ? FfmpegCore.assetRoot().resolve("ui").toString() : FfmpegCore.str(params.get("out_dir"));
+            double pollDeadlineS = ApiController.num(params.get("poll_deadline_s"), 900.0);
+            int queueRetries = ApiController.num(params.get("queue_retries"), 4);
+            String quality = FfmpegCore.str(params.get("quality")).isEmpty() ? "1080p" : FfmpegCore.str(params.get("quality"));
+            int subFontSize = switch (FfmpegCore.str(params.get("sub_size")).toLowerCase(Locale.ROOT)) {
                 case "small" -> 12;
                 case "large" -> 22;
                 default -> 16;
             };
-            CharBg.Progress prog = new CharBg.Progress(){
+            CharBgComposer.Progress prog = new CharBgComposer.Progress(){
 
                 @Override
                 public void report(int step, int t, String message) {
                     int pct = t > 1 ? (int)(100.0 * (double)step / (double)(t - 1)) : 100;
-                    Jobs.update(jobId, Map.of("progress", Api.progressMap(step, t, message, pct)));
+                    Jobs.update(jobId, Map.of("progress", ApiController.progressMap(step, t, message, pct)));
                 }
 
                 @Override
                 public boolean cancelled() {
                     if (cancel.get()) {
-                        VideoCore.killCurrentFfmpeg();
+                        FfmpegCore.killCurrentFfmpeg();
                     }
                     return cancel.get();
                 }
             };
             try {
-                result = CharBg.makeCharBgVideo(shots, chars, bgs, orientation, subtitles, bgm.isEmpty() ? null : bgm, bgmVol, narration, voices, localAudio, charAudio, defaultVoice, model, fps, charScale, charPos, styleHint, outDir, pollDeadlineS, queueRetries, quality, subFontSize, prog);
+                result = CharBgComposer.makeCharBgVideo(shots, chars, bgs, orientation, subtitles, bgm.isEmpty() ? null : bgm, bgmVol, narration, voices, localAudio, charAudio, defaultVoice, model, providerId, fps, charScale, charPos, styleHint, outDir, pollDeadlineS, queueRetries, quality, subFontSize, prog);
             }
             catch (Exception e) {
                 result = Map.of("ok", false, "error", "pipeline failed: " + e, "stage", "pipeline");
             }
             if (cancel.get() || Boolean.TRUE.equals(result.get("cancelled"))) {
-                Jobs.update(jobId, Map.of("status", "cancelled", "error", "\u5df2\u53d6\u6d88\uff08\u7528\u6237\u8bf7\u6c42\u505c\u6b62\uff09", "progress", Api.progressMap(total, total, "\u5df2\u53d6\u6d88", 100)));
+                Jobs.update(jobId, Map.of("status", "cancelled", "error", "\u5df2\u53d6\u6d88\uff08\u7528\u6237\u8bf7\u6c42\u505c\u6b62\uff09", "progress", ApiController.progressMap(total, total, "\u5df2\u53d6\u6d88", 100)));
             } else if (Boolean.TRUE.equals(result.get("ok"))) {
                 List l2;
                 Object ef;
@@ -809,7 +832,7 @@ public class Api {
                 fin.put("size", result.get("size"));
                 fin.put("subtitles", result.get("subtitles"));
                 fin.put("elapsed_s", result.get("elapsed_s"));
-                fin.put("progress", Api.progressMap(total, total, "\u5b8c\u6210", 100));
+                fin.put("progress", ApiController.progressMap(total, total, "\u5b8c\u6210", 100));
                 Object vw = result.get("voice_warnings");
                 if (vw instanceof List && !(l = (List)vw).isEmpty()) {
                     fin.put("voice_warnings", vw);
@@ -819,7 +842,7 @@ public class Api {
                 }
                 Jobs.update(jobId, fin);
             } else {
-                Jobs.update(jobId, Map.of("status", "failed", "error", String.valueOf(result.get("error")), "stage", String.valueOf(result.get("stage")), "progress", Api.progressMap(total, total, "\u5931\u8d25", 100)));
+                Jobs.update(jobId, Map.of("status", "failed", "error", String.valueOf(result.get("error")), "stage", String.valueOf(result.get("stage")), "progress", ApiController.progressMap(total, total, "\u5931\u8d25", 100)));
             }
         }
         finally {
@@ -838,7 +861,7 @@ public class Api {
         if (SWEEPER_STARTED) {
             return;
         }
-        synchronized (Api.class) {
+        synchronized (ApiController.class) {
             if (SWEEPER_STARTED) {
                 return;
             }
@@ -951,8 +974,8 @@ public class Api {
         ArrayList live = new ArrayList();
         for (Map<String, Object> j : Jobs.load()) {
             boolean inFlight;
-            String video = VideoCore.str(j.get("video"));
-            String status = VideoCore.str(j.get("status"));
+            String video = FfmpegCore.str(j.get("video"));
+            String status = FfmpegCore.str(j.get("status"));
             boolean hasVideo = !video.isEmpty() && Files.exists(Paths.get(video, new String[0]), new LinkOption[0]);
             boolean bl = inFlight = "running".equals(status) || "failed".equals(status) || "cancelled".equals(status);
             if (!hasVideo && !inFlight) continue;
@@ -988,10 +1011,10 @@ public class Api {
             return ResponseEntity.status((int)404).body(Map.of("ok", false, "error", "\u672a\u627e\u5230\u8be5\u4f5c\u54c1"));
         }
         LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>(j);
-        String status = VideoCore.str(j.get("status"));
+        String status = FfmpegCore.str(j.get("status"));
         out.put("cancelable", "running".equals(status));
         out.put("retryable", "failed".equals(status) || "cancelled".equals(status));
-        out.put("video_exists", j.get("video") != null && Files.exists(Paths.get(VideoCore.str(j.get("video")), new String[0]), new LinkOption[0]));
+        out.put("video_exists", j.get("video") != null && Files.exists(Paths.get(FfmpegCore.str(j.get("video")), new String[0]), new LinkOption[0]));
         out.remove("params");
         return ResponseEntity.ok(out);
     }
@@ -1003,11 +1026,11 @@ public class Api {
             return Map.of("ok", false, "error", "\u672a\u627e\u5230\u8be5\u4f5c\u54c1");
         }
         AtomicBoolean c = CANCELS.get(jobId);
-        if (c == null || !"running".equals(VideoCore.str(j.get("status")))) {
+        if (c == null || !"running".equals(FfmpegCore.str(j.get("status")))) {
             return Map.of("ok", false, "error", "\u4efb\u52a1\u4e0d\u5728\u8fd0\u884c\u4e2d");
         }
         c.set(true);
-        VideoCore.killCurrentFfmpeg();
+        FfmpegCore.killCurrentFfmpeg();
         Jobs.update(jobId, Map.of("progress", Map.of("message", "\u6b63\u5728\u53d6\u6d88\u2026")));
         return Map.of("ok", true, "job_id", jobId, "note", "\u5df2\u8bf7\u6c42\u53d6\u6d88\uff0c\u5c06\u5728\u4e0b\u4e00\u4e2a\u68c0\u67e5\u70b9\u505c\u6b62");
     }
@@ -1018,7 +1041,7 @@ public class Api {
         if (j == null) {
             return Map.of("ok", false, "error", "\u672a\u627e\u5230\u8be5\u4f5c\u54c1");
         }
-        String status = VideoCore.str(j.get("status"));
+        String status = FfmpegCore.str(j.get("status"));
         if ("running".equals(status)) {
             return Map.of("ok", false, "error", "\u4efb\u52a1\u6b63\u5728\u8fd0\u884c\uff0c\u65e0\u9700\u91cd\u8bd5");
         }
@@ -1049,7 +1072,7 @@ public class Api {
         if (job == null) {
             return ResponseEntity.status((int)404).body(Map.of("detail", "unknown job"));
         }
-        Path path = Paths.get(VideoCore.str(job.get("video")), new String[0]);
+        Path path = Paths.get(FfmpegCore.str(job.get("video")), new String[0]);
         if (!Files.exists(path, new LinkOption[0])) {
             return ResponseEntity.status((int)410).body(Map.of("detail", "media no longer on disk"));
         }
@@ -1080,7 +1103,7 @@ public class Api {
         if (job == null) {
             return ResponseEntity.status((int)404).build();
         }
-        Path path = Paths.get(VideoCore.str(job.get("video")), new String[0]);
+        Path path = Paths.get(FfmpegCore.str(job.get("video")), new String[0]);
         if (!Files.exists(path, new LinkOption[0])) {
             return ResponseEntity.status((int)410).build();
         }
@@ -1093,7 +1116,7 @@ public class Api {
         r.put("ok", true);
         r.put("backend", "java");
         r.put("port", "8791");
-        r.put("ffmpeg", VideoCore.ffmpeg());
+        r.put("ffmpeg", FfmpegCore.ffmpeg());
         return r;
     }
 
@@ -1259,7 +1282,7 @@ public class Api {
 
     private boolean entryExtAllowed(String entry) {
         if (entry.startsWith("images/") || entry.startsWith("voices/") || entry.startsWith("music/")) {
-            String ext = Api.extOf(entry).toLowerCase(Locale.ROOT);
+            String ext = ApiController.extOf(entry).toLowerCase(Locale.ROOT);
             if (entry.startsWith("images/")) {
                 return IMG_EXTS.contains(ext);
             }
@@ -1352,7 +1375,7 @@ public class Api {
         catch (Exception e) {
             return null; // does not exist / unreadable -> not servable
         }
-        if (!Files.isRegularFile(p, new LinkOption[0]) || !exts.contains(Api.extOf(p.toString()).toLowerCase(Locale.ROOT))) {
+        if (!Files.isRegularFile(p, new LinkOption[0]) || !exts.contains(ApiController.extOf(p.toString()).toLowerCase(Locale.ROOT))) {
             return null;
         }
         return p;
@@ -1379,7 +1402,7 @@ public class Api {
             return Map.of("ok", false, "error", "no url");
         }
         final String t = target;
-        Thread th = new Thread(() -> com.aivideo.AiVideoApp.openBrowser(t), "yucl-open-browser");
+        Thread th = new Thread(() -> com.aivideo.YuclApp.openBrowser(t), "yucl-open-browser");
         th.setDaemon(true);
         th.start();
         return Map.of("ok", true, "url", t);
@@ -1450,10 +1473,14 @@ public class Api {
         @JsonProperty(value="size")
         public String size = "1024x1024";
         @JsonProperty(value="model")
-        public String model = "agnes-image-2.5-flash";
+        public String model = "";
+        @JsonProperty(value="provider_id")
+        public String providerId = "";
     }
 
     public static class MakeCharBgRequest {
+        @JsonProperty(value="provider_id")
+        public String providerId = "";
         @JsonProperty(value="characters")
         public List<Entity> characters;
         @JsonProperty(value="backgrounds")
@@ -1514,6 +1541,7 @@ public class Api {
             m.put("char_voices", this.charVoices);
             m.put("default_voice", this.defaultVoice);
             m.put("model", this.model);
+            m.put("provider_id", this.providerId == null ? "" : this.providerId);
             m.put("fps", this.fps);
             m.put("char_scale", this.charScale);
             m.put("char_pos", this.charPos);

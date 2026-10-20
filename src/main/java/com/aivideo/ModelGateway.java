@@ -10,7 +10,7 @@
 package com.aivideo;
 
 import com.aivideo.Providers;
-import com.aivideo.VideoCore;
+import com.aivideo.FfmpegCore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -40,7 +40,7 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 import org.yaml.snakeyaml.Yaml;
 
-public final class Agnesa {
+public final class ModelGateway {
     public static final String DEFAULT_MODEL = "agnes-video-2.5-flash";
     public static final String DEFAULT_BASE_URL = "https://apihub.agnes-ai.com/v1";
     public static final List<String> IMAGE_MODELS = List.of("agnes-image-2.5-flash", "agnes-image-2.1-flash", "agnes-image-2.0-flash");
@@ -53,7 +53,7 @@ public final class Agnesa {
     private static final Map<String, String> RATIO = Map.of("vertical", "9:16", "9:16", "9:16", "landscape", "16:9", "16:9", "16:9", "square", "1:1", "1:1", "1:1", "21:9", "21:9", "4:3", "4:3", "3:4", "3:4");
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private Agnesa() {
+    private ModelGateway() {
     }
 
     static List<String[]> endpoints() {
@@ -69,7 +69,7 @@ public final class Agnesa {
             out.add(new String[]{base, envKey.trim()});
             seen.add(base + "|" + envKey.trim());
         }
-        if (Files.exists(cfg = VideoCore.hermesHome().resolve("config.yaml"), new LinkOption[0])) {
+        if (Files.exists(cfg = FfmpegCore.hermesHome().resolve("config.yaml"), new LinkOption[0])) {
             try {
                 Map root;
                 Object provs;
@@ -107,7 +107,7 @@ public final class Agnesa {
     }
 
     public static Map<String, Object> credentialStatus() {
-        List<String[]> eps = Agnesa.endpoints();
+        List<String[]> eps = ModelGateway.endpoints();
         if (eps.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
             r.put("ok", false);
@@ -115,10 +115,10 @@ public final class Agnesa {
             r.put("hint", "\u5728 config.yaml \u7684 custom_providers \u52a0\u4e00\u4e2a agnes \u6761\u76ee\uff08api_key + base_url\uff09\uff0c\u6216\u8bbe\u73af\u5883\u53d8\u91cf AGNES_API_KEY / AGNES_BASE_URL");
             return r;
         }
-        HttpClient http = Agnesa.newClient(20);
+        HttpClient http = ModelGateway.newClient(20);
         String lastRejected = "";
         for (String[] ep : eps) {
-            String host = Agnesa.splitHost(ep[0]);
+            String host = ModelGateway.splitHost(ep[0]);
             try {
                 HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(host + "/v1/models")).header("Authorization", "Bearer " + ep[1]).GET().build(), HttpResponse.BodyHandlers.ofString());
                 if (r.statusCode() == 200) {
@@ -155,8 +155,30 @@ public final class Agnesa {
     }
 
     static List<String[]> providerEndpoints() {
+        return ModelGateway.providerEndpoints("");
+    }
+
+    /** 开放 harness：按 id 解析供应商（空/未知 → 当前 active；内置且卡片无 key → 回落内置凭据）。 */
+    static List<String[]> providerEndpoints(String providerId) {
+        Map<String, Object> p;
+        boolean builtin = false;
+        if (providerId != null && !providerId.trim().isEmpty()) {
+            Map<String, Object> st = Providers.state();
+            p = null;
+            for (Map<String, Object> x : (List<Map<String, Object>>)st.get("providers")) {
+                if (providerId.trim().equals(String.valueOf(x.get("id")))) {
+                    p = x;
+                    break;
+                }
+            }
+            if (p == null) {
+                p = Providers.active();
+            }
+        } else {
+            p = Providers.active();
+        }
+        builtin = Boolean.TRUE.equals(p.get("builtin"));
         List<String[]> out = new ArrayList<String[]>();
-        Map<String, Object> p = Providers.active();
         String base = Providers.str(p, "base_url");
         String key = Providers.str(p, "api_key");
         if (!((String)base).isEmpty() && !key.isEmpty()) {
@@ -165,8 +187,8 @@ public final class Agnesa {
             }
             out.add(new String[]{base, key});
         }
-        if (out.isEmpty()) {
-            out = Agnesa.endpoints();
+        if (out.isEmpty() && builtin) {
+            out = ModelGateway.endpoints();
         }
         return out;
     }
@@ -176,15 +198,15 @@ public final class Agnesa {
         LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("provider", Providers.str(p, "name"));
         out.put("provider_id", Providers.str(p, "id"));
-        List<String[]> eps = Agnesa.providerEndpoints();
+        List<String[]> eps = ModelGateway.providerEndpoints();
         if (eps.isEmpty()) {
             out.put("ok", false);
             out.put("reason", "no provider credentials");
             return out;
         }
-        HttpClient http = Agnesa.newClient(20);
+        HttpClient http = ModelGateway.newClient(20);
         for (String[] ep : eps) {
-            String host = Agnesa.splitHost(ep[0]);
+            String host = ModelGateway.splitHost(ep[0]);
             try {
                 HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(host + "/v1/models")).header("Authorization", "Bearer " + ep[1]).GET().build(), HttpResponse.BodyHandlers.ofString());
                 if (r.statusCode() == 200) {
@@ -207,6 +229,10 @@ public final class Agnesa {
     }
 
     public static Map<String, Object> generateImage(String prompt, String size, String model, String outDir) {
+        return ModelGateway.generateImage(prompt, size, model, outDir, "");
+    }
+
+    public static Map<String, Object> generateImage(String prompt, String size, String model, String outDir, String providerId) {
         String string = prompt = prompt == null ? "" : prompt.trim();
         if (prompt.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
@@ -215,7 +241,7 @@ public final class Agnesa {
             r.put("stage", "prompt");
             return r;
         }
-        List<String[]> eps = Agnesa.providerEndpoints();
+        List<String[]> eps = ModelGateway.providerEndpoints(providerId);
         if (eps.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
             r.put("ok", false);
@@ -226,7 +252,7 @@ public final class Agnesa {
         if (model == null || model.isEmpty()) {
             model = Providers.defaultImageModel(Providers.active());
         }
-        Path baseDir = Paths.get(outDir == null || outDir.isEmpty() ? VideoCore.assetRoot().resolve("images").toString() : outDir, new String[0]);
+        Path baseDir = Paths.get(outDir == null || outDir.isEmpty() ? FfmpegCore.assetRoot().resolve("images").toString() : outDir, new String[0]);
         try {
             Files.createDirectories(baseDir, new FileAttribute[0]);
         }
@@ -235,7 +261,7 @@ public final class Agnesa {
         }
         Object lastErr = "";
         for (String[] ep : eps) {
-            String host = Agnesa.splitHost(ep[0]);
+            String host = ModelGateway.splitHost(ep[0]);
             try {
                 String url;
                 HttpClient http;
@@ -247,7 +273,7 @@ public final class Agnesa {
                 if (size != null && !size.isEmpty()) {
                     body.put("size", size);
                 }
-                if ((r = (http = Agnesa.newClient(180)).send(HttpRequest.newBuilder(URI.create(host + "/v1/images/generations")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(120L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() >= 400) {
+                if ((r = (http = ModelGateway.newClient(180)).send(HttpRequest.newBuilder(URI.create(host + "/v1/images/generations")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(120L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() >= 400) {
                     lastErr = "Agnes image rejected (HTTP " + r.statusCode() + "): " + r.body().substring(0, Math.min(300, r.body().length()));
                     continue;
                 }
@@ -289,10 +315,14 @@ public final class Agnesa {
     }
 
     public static Map<String, Object> generate(String prompt, List<String> imageRefs, List<String> audioRefs, String model, int seconds, String aspectRatio, String outDir, double pollDeadlineS, int queueRetries) {
-        return Agnesa.generate(prompt, imageRefs, audioRefs, model, seconds, aspectRatio, outDir, pollDeadlineS, queueRetries, () -> false);
+        return ModelGateway.generate(prompt, imageRefs, audioRefs, model, seconds, aspectRatio, outDir, pollDeadlineS, queueRetries, () -> false, "");
     }
 
     public static Map<String, Object> generate(String prompt, List<String> imageRefs, List<String> audioRefs, String model, int seconds, String aspectRatio, String outDir, double pollDeadlineS, int queueRetries, BooleanSupplier cancel) {
+        return ModelGateway.generate(prompt, imageRefs, audioRefs, model, seconds, aspectRatio, outDir, pollDeadlineS, queueRetries, cancel, "");
+    }
+
+    public static Map<String, Object> generate(String prompt, List<String> imageRefs, List<String> audioRefs, String model, int seconds, String aspectRatio, String outDir, double pollDeadlineS, int queueRetries, BooleanSupplier cancel, String providerId) {
         String string = prompt = prompt == null ? "" : prompt.trim();
         if (prompt.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
@@ -303,11 +333,11 @@ public final class Agnesa {
         seconds = Math.max(4, Math.min(12, seconds == 0 ? 5 : seconds));
         String ratio = RATIO.getOrDefault(aspectRatio == null ? "9:16" : aspectRatio, aspectRatio == null ? "9:16" : aspectRatio);
         if (model == null || model.isEmpty()) {
-            model = Providers.defaultVideoModel(Providers.active());
+            model = providerId != null && !providerId.trim().isEmpty() ? Providers.defaultVideoModel(Providers.byid(providerId)) : Providers.defaultVideoModel(Providers.active());
         }
         List refs = imageRefs == null ? List.of() : imageRefs.stream().filter(u -> u != null && !u.isEmpty()).toList();
         List auds = audioRefs == null ? List.of() : audioRefs.stream().filter(u -> u != null && !u.isEmpty()).toList();
-        List<String[]> eps = Agnesa.providerEndpoints();
+        List<String[]> eps = ModelGateway.providerEndpoints(providerId);
         if (eps.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
             r.put("ok", false);
@@ -315,7 +345,7 @@ public final class Agnesa {
             r.put("stage", "credentials");
             return r;
         }
-        Path baseDir = Paths.get(outDir == null || outDir.isEmpty() ? VideoCore.assetRoot().resolve("agnes").toString() : outDir, new String[0]);
+        Path baseDir = Paths.get(outDir == null || outDir.isEmpty() ? FfmpegCore.assetRoot().resolve("agnes").toString() : outDir, new String[0]);
         try {
             Files.createDirectories(baseDir, new FileAttribute[0]);
         }
@@ -323,14 +353,14 @@ public final class Agnesa {
             // empty catch block
         }
         if (cancel.getAsBoolean()) {
-            return Agnesa.cancelledResult();
+            return ModelGateway.cancelledResult();
         }
         Set<String> terminal = Set.of("completed", "succeeded", "success", "failed", "error", "cancelled", "canceled");
         Object lastErr = "";
         int totalPasses = 1 + Math.max(0, queueRetries);
         for (int attempt = 0; attempt < totalPasses; ++attempt) {
             for (String[] ep : eps) {
-                String host = Agnesa.splitHost(ep[0]);
+                String host = ModelGateway.splitHost(ep[0]);
                 try {
                     HttpClient http;
                     HttpResponse<String> cr;
@@ -348,7 +378,7 @@ public final class Agnesa {
                     if (!auds.isEmpty()) {
                         body.set("audios", JSON.valueToTree(auds.subList(0, Math.min(3, auds.size()))));
                     }
-                    if ((cr = (http = Agnesa.newClient(60)).send(HttpRequest.newBuilder(URI.create(host + "/v1/videos")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(60L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() == 503 && cr.body().contains("queue_full")) {
+                    if ((cr = (http = ModelGateway.newClient(60)).send(HttpRequest.newBuilder(URI.create(host + "/v1/videos")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(60L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() == 503 && cr.body().contains("queue_full")) {
                         lastErr = "Agnes free queue is full (503 video_queue_full)";
                         continue;
                     }
@@ -357,7 +387,7 @@ public final class Agnesa {
                         continue;
                     }
                     JsonNode cj = JSON.readTree(cr.body());
-                    String vid = Agnesa.firstNonBlank(cj.path("video_id").asText(""), cj.path("id").asText(""), cj.path("data").path("video_id").asText(""));
+                    String vid = ModelGateway.firstNonBlank(cj.path("video_id").asText(""), cj.path("id").asText(""), cj.path("data").path("video_id").asText(""));
                     if (vid.isEmpty()) {
                         lastErr = "Agnes submit returned no video_id: " + cr.body().substring(0, Math.min(200, cr.body().length()));
                         continue;
@@ -367,7 +397,7 @@ public final class Agnesa {
                     String url = null;
                     while (System.nanoTime() / 1000000L < deadline) {
                         if (cancel.getAsBoolean()) {
-                            return Agnesa.cancelledResult();
+                            return ModelGateway.cancelledResult();
                         }
                         String modelParam = java.net.URLEncoder.encode(model, java.nio.charset.StandardCharsets.UTF_8);
                     HttpResponse<String> pr = http.send(HttpRequest.newBuilder(URI.create(host + "/agnesapi?video_id=" + vid + "&model_name=" + modelParam)).header("Authorization", "Bearer " + ep[1]).GET().timeout(Duration.ofSeconds(30L)).build(), HttpResponse.BodyHandlers.ofString());
@@ -375,7 +405,7 @@ public final class Agnesa {
                             JsonNode pj = JSON.readTree(pr.body());
                             JsonNode meta = pj.path("metadata");
                             lastStatus = pj.path("status").asText(meta.path("status").asText("")).toLowerCase(Locale.ROOT);
-                            url = Agnesa.extractVideoUrl(pj);
+                            url = ModelGateway.extractVideoUrl(pj);
                             if (terminal.contains(lastStatus)) break;
                         }
                         Thread.sleep(1500L);
@@ -418,7 +448,7 @@ public final class Agnesa {
             }
             if (attempt >= queueRetries) continue;
             if (cancel.getAsBoolean()) {
-                return Agnesa.cancelledResult();
+                return ModelGateway.cancelledResult();
             }
             try {
                 Thread.sleep(20000L);
@@ -447,7 +477,7 @@ public final class Agnesa {
 
     private static String extractVideoUrl(JsonNode node) {
         ArrayList<String> found = new ArrayList<String>();
-        Agnesa.walk(node, found);
+        ModelGateway.walk(node, found);
         return found.isEmpty() ? null : (String)found.get(0);
     }
 
@@ -455,11 +485,11 @@ public final class Agnesa {
         if (o.isObject()) {
             Iterator it = o.fields();
             while (it.hasNext()) {
-                Agnesa.walk((JsonNode)((Map.Entry)it.next()).getValue(), found);
+                ModelGateway.walk((JsonNode)((Map.Entry)it.next()).getValue(), found);
             }
         } else if (o.isArray()) {
             for (JsonNode v : o) {
-                Agnesa.walk(v, found);
+                ModelGateway.walk(v, found);
             }
         } else if (o.isTextual()) {
             String bare;

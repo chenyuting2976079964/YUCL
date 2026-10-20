@@ -11,20 +11,20 @@
 ## 目录结构
 ```
 src/main/java/com/aivideo/
-  AiVideoApp.java   入口（Spring Boot + AppShell 窗口 + 端口占用检查）
-  AppShell.java     JavaFX 原生窗口（WebView 载入 http://127.0.0.1:8791）
-  Api.java          全部 HTTP API（/api/plugins/ai-video/*）
-  CharBg.java       人物·背景成片 pipeline（镜头合成/TTS/BGM/字幕）
-  VideoCore.java    ffmpeg 底层（compose/normalize/concat/mixBgm/burnSrt）
-  Providers.java    模型供应商配置（provider-config.json）
-  Agnesa.java       Agnes 内置模型端点发现（config.yaml/env）
-  Jobs.java         任务持久化（jobs.json）
-  DataDirs.java     数据目录解析（YUCL_DATA_DIR/YUCL_CACHE_DIR 环境变量优先）
+  YuclApp.java           入口（Spring Boot + AppShell 窗口 + 端口占用检查）
+  AppShell.java          JavaFX 原生窗口（WebView 载入 http://127.0.0.1:8791）
+  ApiController.java     全部 HTTP API（/api/plugins/ai-video/*）
+  CharBgComposer.java    人物·背景成片 pipeline（镜头合成/TTS/BGM/字幕）
+  FfmpegCore.java        ffmpeg 底层（compose/normalize/concat/mixBgm/burnSrt）
+  Providers.java         模型供应商配置（provider-config.json）
+  ModelGateway.java      Agnes 内置模型端点发现（config.yaml/env）
+  Jobs.java              任务持久化（jobs.json）
+  DataDirs.java          数据目录解析（YUCL_DATA_DIR/YUCL_CACHE_DIR 环境变量优先）
   NoCacheFilter.java
   tools/            安装/卸载器（jpackage 独立小 jar 使用）
 src/main/java/com/yuc/tools/
-  Installer.java    安装器（YUCL-Setup.exe 的主类）
-  Uninstaller.java  卸载器（YUCL-Uninstall.exe 的主类）
+  Installer.java         安装器（YUCL-Setup.exe 的主类）
+  Uninstaller.java       卸载器（YUCL-Uninstall.exe 的主类）
 src/main/resources/
   application.properties   端口 8791、媒体/日志目录
   static/index.html        UI（窗口内加载的就是它）
@@ -95,7 +95,7 @@ mvn spring-boot:run            # 浏览器模式（自动开浏览器）
 - 环境变量 `YUCL_DATA_DIR` / `YUCL_CACHE_DIR` 覆盖数据/缓存位置（本机安装约定：`D:\YUCL\data`、`D:\YUCL\cache`）
 
 ## 关键约定
-- 视频输出 **必须** 是 h264 **main** profile（`VideoCore` 里三处重编码点已加
+- 视频输出 **必须** 是 h264 **main** profile（`FfmpegCore` 里三处重编码点已加
   `-profile:v main` 和 `-movflags +faststart`）：WebView/浏览器能正常播放。
   **但原生 JavaFX 窗口的媒体管线（webkit.mediaplayer）仍报 260
   ERROR_MEDIA_INVALID，解不了 h264**——这是 JavaFX 固有限制，改不了。原生窗口
