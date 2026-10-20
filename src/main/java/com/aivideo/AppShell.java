@@ -44,7 +44,9 @@ import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.image.Image;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.Paint;
 import javafx.scene.web.WebEngine;
@@ -80,15 +82,22 @@ extends Application {
         s.setHeight(geo[1]);
         WebView view = new WebView();
         WebEngine engine = view.getEngine();
-        StackPane loading = new StackPane();
+        javafx.scene.layout.VBox splash = new javafx.scene.layout.VBox(10.0);
+        Label brand = new Label("YUCL");
+        brand.setStyle("-fx-font-size: 26; -fx-font-weight: 800; -fx-text-fill: #eaedf7; -fx-letter-spacing: 2;");
+        Label tag = new Label("AI \u77ed\u89c6\u9891\u5de5\u4f5c\u5ba4");
+        tag.setStyle("-fx-font-size: 12; -fx-text-fill: #7c86a5;");
         ProgressIndicator spinner = new ProgressIndicator(26.0);
-        Label hint = new Label("\u6b63\u5728\u542f\u52a8 YUCL\uff0c\u8bf7\u7a0d\u5019\u2026");
-        hint.setTextFill((Paint)Color.WHITE);
-        loading.getChildren().addAll(spinner, hint);
-        loading.setStyle("-fx-background-color: #1e2230;");
-        hint.setManaged(true);
+        spinner.setStyle("-fx-progress-indicator: 26;");
+        Label hint = new Label("\u670d\u52a1\u6b63\u5728\u542f\u52a8\uff0c\u7a0d\u5019\u2026");
+        hint.setStyle("-fx-font-size: 12; -fx-text-fill: #535d78;");
+        splash.getChildren().addAll(brand, tag, spinner, hint);
+        splash.setPrefWidth(220.0);
+        javafx.scene.layout.BorderPane splashRoot = new javafx.scene.layout.BorderPane();
+        splashRoot.setCenter(splash);
+        splashRoot.setStyle("-fx-background-color: #0b0d14;");
         StackPane root = new StackPane();
-        root.getChildren().addAll(view, loading);
+        root.getChildren().addAll(view, splashRoot);
         s.setScene(new Scene(root, geo[0], geo[1]));
         s.setOnCloseRequest(ev -> {
             this.saveGeometry();
@@ -118,8 +127,8 @@ extends Application {
                 }
             }
             Platform.runLater(() -> {
-                loading.setVisible(false);
-                loading.setManaged(false);
+                splashRoot.setVisible(false);
+                splashRoot.setManaged(false);
                 engine.load(this.baseUrl);
             });
         }, "yucl-shell-boot");

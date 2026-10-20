@@ -16,6 +16,7 @@
       <div class="field" style="margin-bottom:0">
         <label class="lbl">系统音色 <span class="hint">edge-tts，网络不可用时自动降级</span></label>
         <select v-model="voice">
+          <option value="">— 请选择音色（{{ options?.voices?.length ? "系统音色加载完成" : "加载失败" }}）</option>
           <option v-for="v in options?.voices || []" :key="v.value" :value="v.value">{{ v.label || v.value }} · {{ v.value }}</option>
         </select>
       </div>

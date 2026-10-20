@@ -15,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -39,17 +40,37 @@ public class YuclApp {
             System.exit(0);
         }
         if (YuclApp.portBusy(port)) {
-            System.err.println("\u65e0\u6cd5\u542f\u52a8 YUCL\uff1a\u7aef\u53e3 " + port + " \u5df2\u88ab\u5176\u4ed6\u7a0b\u5e8f\u5360\u7528\uff08\u4e0d\u662f YUCL\uff09\u3002");
+            System.err.println("\u65e0\u6cd5\u542f\u52a8 YUCL\uff1a\u7aef\u53e3 " + port + " \u5df2\u7ecf\u88ab\u5176\u4ed6\u7a0b\u5e8f\u5360\u7528\uff08\u4e0d\u662f YUCL\uff09\u3002");
             System.err.println("\u8bf7\u5173\u95ed\u5360\u7528\u8be5\u7aef\u53e3\u7684\u7a0b\u5e8f\u540e\u91cd\u8bd5\uff1b\u6216\u8bbe\u7f6e\u73af\u5883\u53d8\u91cf SERVER_PORT=8792 \u7b49\u5176\u5b83\u7aef\u53e3\u518d\u542f\u52a8\u3002");
             System.exit(1);
         }
-        ConfigurableApplicationContext ctx = SpringApplication.run(YuclApp.class, (String[])args);
-        String livePort = ctx.getEnvironment().getProperty("server.port", port);
-        String liveUrl = "http://127.0.0.1:" + livePort + "/";
+        // \u5feb\u901f\u542f\u52a8\uff1a\u5148\u5f39\u51fa\u5e94\u7528\u7a97\u53e3\uff08\u95ea\u5c4f\uff09\uff0c\u670d\u52a1\u5728\u540e\u53f0\u542f\u52a8\uff0chealthz \u5c31\u7eea\u540e\u7a97\u53e3\u81ea\u52a8\u5207\u5165\u754c\u9762
+        AtomicReference<ConfigurableApplicationContext> ctxRef = new AtomicReference<>();
+        Runnable shutdown = () -> {
+            ConfigurableApplicationContext c = ctxRef.get();
+            if (c != null) {
+                try {
+                    c.close();
+                }
+                catch (Exception e) {
+                    System.err.println("shutdown hook failed: " + e);
+                }
+            }
+        };
         if (gui) {
-            AppShell.launch(liveUrl, () -> ctx.close());
-        } else if (!noBrowser) {
-            YuclApp.openBrowser(liveUrl);
+            AppShell.launch(url, shutdown);
+        }
+        try {
+            ConfigurableApplicationContext ctx = SpringApplication.run(YuclApp.class, (String[])args);
+            ctxRef.set(ctx);
+            if (!gui && !noBrowser) {
+                YuclApp.openBrowser(url);
+            }
+        }
+        catch (Throwable t) {
+            System.err.println("\u670d\u52a1\u542f\u52a8\u5931\u8d25\uff1a" + t);
+            t.printStackTrace();
+            System.exit(1);
         }
     }
 
