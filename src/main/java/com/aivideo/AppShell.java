@@ -58,6 +58,25 @@ import org.slf4j.LoggerFactory;
 public final class AppShell
 extends Application {
     private static final Logger log = LoggerFactory.getLogger(AppShell.class);
+    public static final long S0 = System.currentTimeMillis();
+
+    /** 启动耗时探针：直接写文件（slf4j 在 Spring 初始化前不写文件） */
+    private static final java.io.File TRACE = resolveTraceFile();
+
+    static java.io.File resolveTraceFile() {
+        String appPath = System.getProperty("jpackage.app-path");
+        java.nio.file.Path base = appPath != null
+                ? java.nio.file.Paths.get(appPath).toAbsolutePath().getParent().resolve("data")
+                : java.nio.file.Paths.get(System.getProperty("user.dir")).resolve("data");
+        base.toFile().mkdirs();
+        return base.resolve("boot-trace.log").toFile();
+    }
+
+    static synchronized void trace(String msg) {
+        try (java.io.FileWriter w = new java.io.FileWriter(TRACE, true)) {
+            w.write(new java.util.Date().toString() + " t+" + (System.currentTimeMillis() - S0) + "ms " + msg + System.lineSeparator());
+        } catch (Exception ignored) { }
+    }
     private static final ObjectMapper JSON = new ObjectMapper();
     private final String baseUrl;
     private final Runnable onShutdown;
@@ -82,6 +101,16 @@ extends Application {
         s.setHeight(geo[1]);
         WebView view = new WebView();
         WebEngine engine = view.getEngine();
+        trace("window shown");
+        log.info("[boot] window shown t+{}ms", System.currentTimeMillis() - S0);
+        final java.util.concurrent.atomic.AtomicInteger loads = new java.util.concurrent.atomic.AtomicInteger();
+        // 预热 WebView2（与 Spring 启动并行），避免首帧渲染再等几十秒
+        engine.load("about:blank");
+        engine.getLoadWorker().stateProperty().addListener((o2, o, n) -> {
+            if (n == javafx.concurrent.Worker.State.SUCCEEDED) {
+                trace("load#" + loads.incrementAndGet() + " done: " + engine.getLocation());
+            }
+        });
         javafx.scene.layout.VBox splash = new javafx.scene.layout.VBox(10.0);
         Label brand = new Label("YUCL");
         brand.setStyle("-fx-font-size: 26; -fx-font-weight: 800; -fx-text-fill: #eaedf7; -fx-letter-spacing: 2;");
@@ -91,7 +120,9 @@ extends Application {
         spinner.setStyle("-fx-progress-indicator: 26;");
         Label hint = new Label("\u670d\u52a1\u6b63\u5728\u542f\u52a8\uff0c\u7a0d\u5019\u2026");
         hint.setStyle("-fx-font-size: 12; -fx-text-fill: #535d78;");
-        splash.getChildren().addAll(brand, tag, spinner, hint);
+        Label hint2 = new Label("\u9996\u6b21\u542f\u52a8/\u521a\u66f4\u5bae\u65f6\u8f83\u6162\uff08\u6740\u6bd1\u8f6f\u4ef6\u626b\u63cf\uff09");
+        hint2.setStyle("-fx-font-size: 11; -fx-text-fill: #444c66;");
+        splash.getChildren().addAll(brand, tag, spinner, hint, hint2);
         splash.setPrefWidth(220.0);
         javafx.scene.layout.BorderPane splashRoot = new javafx.scene.layout.BorderPane();
         splashRoot.setCenter(splash);
@@ -129,6 +160,8 @@ extends Application {
             Platform.runLater(() -> {
                 splashRoot.setVisible(false);
                 splashRoot.setManaged(false);
+                trace("healthz ok, loading page");
+                log.info("[boot] healthz ok t+{}ms — loading page", System.currentTimeMillis() - S0);
                 engine.load(this.baseUrl);
             });
         }, "yucl-shell-boot");
