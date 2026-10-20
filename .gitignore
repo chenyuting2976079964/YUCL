@@ -1,0 +1,9 @@
+target/
+dist/
+dist-staging-setup/
+dist-staging-uninstall/
+build-tools/classes/
+*.log
+*.tmp
+staging-app/
+gh-auth.log

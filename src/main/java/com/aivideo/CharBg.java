@@ -1,0 +1,371 @@
+/*
+ * Decompiled with CFR 0.152.
+ */
+package com.aivideo;
+
+import com.aivideo.Agnesa;
+import com.aivideo.VideoCore;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.CopyOption;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.FileAttribute;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+public final class CharBg {
+    public static final Progress NO_PROGRESS = new Progress(){
+
+        @Override
+        public void report(int step, int total, String message) {
+        }
+
+        @Override
+        public boolean cancelled() {
+            return false;
+        }
+    };
+
+    private CharBg() {
+    }
+
+    static Map<String, Object> lookup(Map<String, Map<String, Object>> entities, Object key) {
+        if (key == null) {
+            return null;
+        }
+        String s = String.valueOf(key).trim();
+        if (s.isEmpty()) {
+            return null;
+        }
+        if (s.chars().allMatch(Character::isDigit) && !s.isEmpty()) {
+            int idx;
+            try {
+                idx = Integer.parseInt(s);
+            }
+            catch (NumberFormatException e) {
+                idx = -1;
+            }
+            if (idx >= 0 && idx < entities.size()) {
+                return entities.values().stream().skip(idx).findFirst().orElse(null);
+            }
+        }
+        if (entities.containsKey(s)) {
+            return entities.get(s);
+        }
+        for (Map.Entry<String, Map<String, Object>> e : entities.entrySet()) {
+            if (!e.getKey().equalsIgnoreCase(s)) continue;
+            return e.getValue();
+        }
+        return null;
+    }
+
+    static Map<String, Map<String, Object>> entitiesMap(List<Map<String, Object>> lst) {
+        LinkedHashMap<String, Map<String, Object>> m = new LinkedHashMap<String, Map<String, Object>>();
+        if (lst != null) {
+            for (Map<String, Object> e : lst) {
+                String name = VideoCore.str(e == null ? null : e.get("name")).trim();
+                if (name.isEmpty()) continue;
+                m.put(name, e);
+            }
+        }
+        return m;
+    }
+
+    static String resolveLocalImg(String img, String url, Path runDir, String label, int shotN, List<String> notes, String who) {
+        if (url == null || url.isEmpty() || !url.startsWith("http://") && !url.startsWith("https://")) {
+            return img;
+        }
+        Object ext = ".png";
+        String tail = url.split("\\?")[0];
+        int slash = tail.lastIndexOf(47);
+        if (slash >= 0 && slash + 5 < tail.length()) {
+            String e = tail.substring(slash + 1).toLowerCase(Locale.ROOT);
+            for (String ok : new String[]{"png", "jpg", "jpeg", "webp", "gif"}) {
+                if (!e.startsWith(ok) || e.length() > ok.length() + 3) continue;
+                ext = "." + ok;
+                break;
+            }
+        }
+        try {
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15L)).build();
+            HttpResponse<byte[]> resp = client.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(60L)).build(), HttpResponse.BodyHandlers.ofByteArray());
+            byte[] data = resp.body();
+            if (resp.statusCode() != 200 || data == null || data.length == 0 || (long)data.length > 0xF00000L) {
+                throw new IOException("HTTP " + resp.statusCode());
+            }
+            Path dst = runDir.resolve("ref_" + label + (String)ext);
+            Files.write(dst, data, new OpenOption[0]);
+            return dst.toString();
+        }
+        catch (Exception e) {
+            notes.add("\u7b2c" + shotN + "\u955c\uff1a" + who + "\u7684 URL \u56fe\u7247\u4e0b\u8f7d\u5931\u8d25\uff08" + e.getMessage() + "\uff09\uff0c\u65e0\u6cd5\u672c\u5730\u5408\u6210");
+            return img;
+        }
+    }
+
+    public static Map<String, Object> makeCharBgVideo(List<Map<String, Object>> shots, List<Map<String, Object>> characters, List<Map<String, Object>> backgrounds, String orientation, boolean subtitles, String bgm, double bgmVol, boolean doTts, Map<String, String> voices, Map<String, String> localAudio, Map<String, String> charVoices, String defaultVoice, String model, int fps, double charScale, String charPos, String styleHint, String outDir, double pollDeadlineS, int queueRetries, String quality, int subFontSize, Progress progress) throws IOException {
+        Map<String, Object> rc;
+        String firstText;
+        if (progress == null) {
+            progress = NO_PROGRESS;
+        }
+        int totalSteps = (shots == null ? 0 : shots.size()) + 3;
+        long t0 = System.currentTimeMillis();
+        int[] wh = VideoCore.geom(orientation, quality);
+        int w = wh[0];
+        int h = wh[1];
+        String ratio = orientation;
+        Path base = Paths.get(outDir == null || outDir.isEmpty() ? VideoCore.assetRoot().toString() : outDir, new String[0]);
+        String string = firstText = shots == null || shots.isEmpty() ? "" : VideoCore.str(shots.get(0).get("text"));
+        if (firstText.isEmpty()) {
+            firstText = "film";
+        }
+        Path runDir = base.resolve("charbg_" + VideoCore.slug(firstText.substring(0, Math.min(16, firstText.length())), 20)).resolve(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")));
+        Files.createDirectories(runDir, new FileAttribute[0]);
+        if (shots == null || shots.isEmpty()) {
+            return Map.of("ok", false, "error", "\u9700\u8981\u81f3\u5c11\u4e00\u4e2a\u955c\u5934 shots");
+        }
+        if (VideoCore.ffmpeg() == null) {
+            return Map.of("ok", false, "error", "ffmpeg not found on PATH");
+        }
+        if (voices == null) {
+            voices = Map.of();
+        }
+        if (defaultVoice == null || defaultVoice.isEmpty()) {
+            defaultVoice = VideoCore.VOCES.get("zh");
+        }
+        Map<String, Map<String, Object>> chars = CharBg.entitiesMap(characters);
+        Map<String, Map<String, Object>> bgs = CharBg.entitiesMap(backgrounds);
+        ArrayList<String> clipPaths = new ArrayList<String>();
+        ArrayList<Map<String, Object>> processed = new ArrayList<Map<String, Object>>();
+        ArrayList<String> engineFallbacks = new ArrayList<String>();
+        LinkedHashMap<String, Integer> audioSrcCount = new LinkedHashMap<String, Integer>();
+        ArrayList<String> voiceWarnings = new ArrayList<String>();
+        for (int i = 0; i < shots.size(); ++i) {
+            Map<String, Object> comp;
+            Double alen;
+            Map<String, Object> shot = shots.get(i);
+            int n1 = i + 1;
+            String text = VideoCore.str(shot.get("text")).trim();
+            int sec = Math.max(4, Math.min(12, VideoCore.intOf(shot.get("seconds"), 5)));
+            String engine = VideoCore.str(shot.get("engine")).toLowerCase(Locale.ROOT).isEmpty() ? "local" : VideoCore.str(shot.get("engine")).toLowerCase(Locale.ROOT);
+            progress.report(i, totalSteps, "Shot " + n1 + "/" + shots.size() + " \u00b7 " + (engine.equals("ai") ? "AI video generation (may queue 1\u20133 min)" : "local compositing"));
+            if (progress.cancelled()) {
+                return CharBg.cancelledStage(i + 1, totalSteps);
+            }
+            Map<String, Object> ch = CharBg.lookup(chars, shot.get("character"));
+            Map<String, Object> ch2 = CharBg.lookup(chars, shot.get("character2"));
+            Map<String, Object> map = CharBg.lookup(bgs, shot.get("background"));
+            String chName = ch != null ? VideoCore.str(ch.get("name")) : VideoCore.str(shot.get("character")).trim();
+            String ch2Name = ch2 != null ? VideoCore.str(ch2.get("name")) : VideoCore.str(shot.get("character2")).trim();
+            String chImg = ch != null ? VideoCore.str(ch.get("image")) : "";
+            String ch2Img = ch2 != null ? VideoCore.str(ch2.get("image")) : "";
+            String chUrl = ch != null ? VideoCore.str(ch.get("url")) : "";
+            String ch2Url = ch2 != null ? VideoCore.str(ch2.get("url")) : "";
+            String bgImg = map != null ? VideoCore.str(map.get("image")) : "";
+            String bgUrl = map != null ? VideoCore.str(map.get("url")) : "";
+            String audio = null;
+            String audioSrc = "none";
+            if (doTts) {
+                String loc;
+                String cv;
+                String string2 = cv = chName.isEmpty() || charVoices == null ? null : charVoices.get(chName);
+                if (cv != null && !cv.isEmpty() && !cv.startsWith("tts:") && Files.exists(Paths.get(cv, new String[0]), new LinkOption[0])) {
+                    audio = cv;
+                    audioSrc = "local";
+                } else if (cv != null && cv.startsWith("tts:")) {
+                    voiceWarnings.add("\u7b2c" + n1 + "\u955c\uff08" + (chName.isEmpty() ? "\u9ed8\u8ba4" : chName) + "\uff09\uff1a\u8be5\u4eba\u7269\u97f3\u6e90\u9009\u4e86\u7cfb\u7edf\u97f3\u8272 " + cv.substring(4) + "\uff0c\u672c\u6784\u5efa\u65e0 TTS\uff0c\u5df2\u7528\u9ed8\u8ba4\u58f0\u6e90");
+                }
+                if (audio == null && (loc = VideoCore.resolveLocalAudio(i, chName.isEmpty() ? null : chName, localAudio)) != null) {
+                    audio = loc;
+                    audioSrc = "local";
+                }
+            }
+            if (!text.isEmpty() && doTts && audioSrc.equals("none")) {
+                voiceWarnings.add("\u7b2c" + n1 + "\u955c\uff08" + (chName.isEmpty() ? "\u9ed8\u8ba4" : chName) + "\uff09\u65e0\u65c1\u767d\u58f0\uff1aTTS \u4e0d\u53ef\u7528\u4e14\u672a\u914d\u8bed\u97f3\u6587\u4ef6");
+            }
+            String usedEngine = engine;
+            if (engine.equals("ai")) {
+                ArrayList<String> refs = new ArrayList<String>();
+                if (!chUrl.isEmpty()) {
+                    refs.add(chUrl);
+                }
+                if (!ch2Url.isEmpty()) {
+                    refs.add(ch2Url);
+                }
+                if (!bgUrl.isEmpty()) {
+                    refs.add(bgUrl);
+                }
+                if (!refs.isEmpty()) {
+                    Object who = (chName.isEmpty() ? "" : chName) + "\u3001" + (ch2Name.isEmpty() ? "" : ch2Name);
+                    who = ((String)who).replaceAll("^\u3001|\u3001$", "").isEmpty() ? "the character" : who;
+                    String prompt = styleHint + ". Scene: " + text + ". Character(s): " + (String)who + ". The reference images are the character(s) first, the background last. Keep each character's appearance consistent across the clip.";
+                    List<String> list = List.of();
+                    String string3 = model == null || model.isEmpty() ? "agnes-video-2.5-flash" : model;
+                    Map<String, Object> gen = Agnesa.generate(prompt, refs, list, string3, sec, ratio, runDir.toString(), pollDeadlineS, queueRetries, progress::cancelled);
+                    if (Boolean.TRUE.equals(gen.get("cancelled"))) {
+                        return CharBg.cancelledStage(n1 + 1, totalSteps);
+                    }
+                    if (Boolean.TRUE.equals(gen.get("ok"))) {
+                        String clip = VideoCore.str(gen.get("video"));
+                        String norm = runDir.resolve("c" + i + "_n.mp4").toString();
+                        VideoCore.normalize(clip, audio, norm, w, h, fps, sec);
+                        clipPaths.add(Files.exists(Paths.get(norm, new String[0]), new LinkOption[0]) ? norm : clip);
+                        processed.add(Map.of("index", i, "character", chName, "character2", ch2Name, "background", map != null ? VideoCore.str(map.get("name")) : "", "caption", text, "duration", sec, "engine", "ai", "audio_src", audioSrc, "gen", VideoCore.str(gen.get("video_id"))));
+                        CharBg.bump(audioSrcCount, audioSrc);
+                        continue;
+                    }
+                    engineFallbacks.add("\u7b2c" + n1 + "\u955c\uff1aAI \u751f\u6210\u5931\u8d25\uff08" + gen.get("error") + "\uff09\uff0c\u5df2\u6539\u7528\u672c\u5730\u5408\u6210");
+                } else {
+                    engineFallbacks.add("\u7b2c" + n1 + "\u955c\uff1aAI \u9700\u516c\u7f51\u56fe\u7247 URL\uff08\u63d0\u793a\u8bcd\u751f\u6210\u7684\u56fe\uff09\uff0c\u6240\u9009\u4e3a\u672c\u5730\u4e0a\u4f20\uff0c\u5df2\u6539\u7528\u672c\u5730\u5408\u6210");
+                }
+                usedEngine = "local";
+            }
+            double dur = sec;
+            if (audio != null && (alen = VideoCore.ffprobeDuration(audio)) != null && alen > 0.0) {
+                double want = (double)Math.round((alen + 0.3) * 100.0) / 100.0;
+                // Cap: a very long audio file must not stretch one shot into
+                // a multi-minute clip (ffmpeg 900s timeout, runaway video).
+                if (want > 60.0) {
+                    voiceWarnings.add("\u7b2c" + n1 + "\u955c\uff1a\u58f0\u97f3\u6587\u4ef6 " + Math.round(alen) + "s \u8d85\u957f\uff0c\u622a\u53d6\u5230 60s");
+                    want = 60.0;
+                }
+                dur = Math.max((double)sec, want);
+            }
+            if (!(!chImg.isEmpty() && Files.exists(Paths.get(chImg, new String[0]), new LinkOption[0]) || chUrl.isEmpty())) {
+                chImg = CharBg.resolveLocalImg(chImg, chUrl, runDir, "ch" + i + "a", n1, engineFallbacks, "\u4eba\u7269\u300c" + (chName.isEmpty() ? "\u9ed8\u8ba4" : chName) + "\u300d");
+            }
+            if (!(!ch2Img.isEmpty() && Files.exists(Paths.get(ch2Img, new String[0]), new LinkOption[0]) || ch2Url.isEmpty())) {
+                ch2Img = CharBg.resolveLocalImg(ch2Img, ch2Url, runDir, "ch" + i + "b", n1, engineFallbacks, "\u4eba\u7269\u300c" + (ch2Name.isEmpty() ? "\u9ed8\u8ba4" : ch2Name) + "\u300d");
+            }
+            if (!(!bgImg.isEmpty() && Files.exists(Paths.get(bgImg, new String[0]), new LinkOption[0]) || bgUrl.isEmpty())) {
+                bgImg = CharBg.resolveLocalImg(bgImg, bgUrl, runDir, "bg" + i, n1, engineFallbacks, "\u80cc\u666f\u300c" + (map != null ? VideoCore.str(map.get("name")) : "\u9ed8\u8ba4") + "\u300d");
+            }
+            if (!Boolean.TRUE.equals((comp = VideoCore.composeLocal(bgImg.isEmpty() ? null : bgImg, chImg.isEmpty() ? null : chImg, ch2Img.isEmpty() ? null : ch2Img, w, h, dur, charScale, charPos, fps, audio, runDir.resolve("c" + i + ".mp4").toString())).get("ok"))) {
+                LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
+                r.put("ok", false);
+                r.put("stage", "compose-shot-" + n1);
+                r.put("error", comp.get("error"));
+                r.put("workdir", runDir.toString());
+                return r;
+            }
+            clipPaths.add(runDir.resolve("c" + i + ".mp4").toString());
+            processed.add(Map.of("index", i, "character", chName, "character2", ch2Name, "background", map != null ? VideoCore.str(map.get("name")) : "", "caption", text, "duration", dur, "engine", usedEngine, "audio_src", audioSrc));
+            CharBg.bump(audioSrcCount, audioSrc);
+        }
+        String concatOut = runDir.resolve("concat.mp4").toString();
+        progress.report(shots.size(), totalSteps, "Merging all shots");
+        if (progress.cancelled()) {
+            return CharBg.cancelledStage(shots.size() + 1, totalSteps);
+        }
+        try {
+            rc = VideoCore.concat(clipPaths, concatOut);
+        }
+        catch (Exception e) {
+            rc = Map.of("ok", false, "error", "concat write failed: " + e);
+        }
+        if (!Boolean.TRUE.equals(rc.get("ok"))) {
+            LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
+            r.put("ok", false);
+            r.put("stage", "concat");
+            r.put("error", rc.get("error"));
+            r.put("workdir", runDir.toString());
+            return r;
+        }
+        String finalOut = runDir.resolve("final.mp4").toString();
+        progress.report(shots.size() + 1, totalSteps, bgm != null && !bgm.isEmpty() && Files.exists(Paths.get(bgm, new String[0]), new LinkOption[0]) ? "Mixing background music" : "Final rendering");
+        if (progress.cancelled()) {
+            return CharBg.cancelledStage(shots.size() + 2, totalSteps);
+        }
+        if (bgm != null && !bgm.isEmpty() && Files.exists(Paths.get(bgm, new String[0]), new LinkOption[0])) {
+            Map<String, Object> r2 = VideoCore.mixBgm(concatOut, bgm, finalOut, bgmVol);
+            if (!Boolean.TRUE.equals(r2.get("ok"))) {
+                LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
+                r.put("ok", false);
+                r.put("stage", "bgm");
+                r.put("error", r2.get("error"));
+                r.put("workdir", runDir.toString());
+                return r;
+            }
+        } else {
+            Files.copy(Paths.get(concatOut, new String[0]), Paths.get(finalOut, new String[0]), new CopyOption[0]);
+        }
+        if (subtitles) {
+            progress.report(shots.size() + 2, totalSteps, "Burning in subtitles");
+            if (progress.cancelled()) {
+                return CharBg.cancelledStage(shots.size() + 3, totalSteps);
+            }
+            String srt = runDir.resolve("subs.srt").toString();
+            try {
+                VideoCore.writeSrt(processed, srt);
+            }
+            catch (Exception e) {
+                return Map.of("ok", false, "stage", "srt", "error", "write srt failed: " + e, "workdir", runDir.toString());
+            }
+            String finalSubs = runDir.resolve("final_subs.mp4").toString();
+            Map<String, Object> r3 = VideoCore.burnSrt(finalOut, srt, finalSubs, subFontSize);
+            if (Boolean.TRUE.equals(r3.get("ok"))) {
+                finalOut = finalSubs;
+            }
+        }
+        double durTotal = (double)Math.round(processed.stream().mapToDouble(p -> VideoCore.num(p.get("duration"))).sum() * 100.0) / 100.0;
+        LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("ok", true);
+        out.put("mode", "char-bg");
+        out.put("video", finalOut);
+        out.put("workdir", runDir.toString());
+        out.put("orientation", orientation);
+        out.put("size", w + "x" + h);
+        out.put("shots", processed.size());
+        out.put("duration_s", durTotal);
+        out.put("audio_sources", audioSrcCount);
+        out.put("voice_warnings", voiceWarnings);
+        out.put("engine_fallbacks", engineFallbacks);
+        out.put("subtitles", subtitles && finalOut.contains("subs"));
+        out.put("model", model == null || model.isEmpty() ? "local" : model);
+        out.put("elapsed_s", (double)Math.round((double)(System.currentTimeMillis() - t0) / 100.0) / 10.0);
+        out.put("size_bytes", Files.exists(Paths.get(finalOut, new String[0]), new LinkOption[0]) ? Long.valueOf(Files.size(Paths.get(finalOut, new String[0]))) : null);
+        ArrayList processedOut = new ArrayList();
+        for (Map map : processed) {
+            LinkedHashMap q = new LinkedHashMap();
+            for (String k : new String[]{"index", "character", "character2", "background", "caption", "duration", "engine", "audio_src"}) {
+                q.put(k, map.get(k));
+            }
+            processedOut.add(q);
+        }
+        out.put("processed", processedOut);
+        return out;
+    }
+
+    private static Map<String, Object> cancelledStage(int step, int totalSteps) {
+        LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
+        r.put("ok", false);
+        r.put("cancelled", true);
+        r.put("stage", "cancelled");
+        r.put("error", "\u7528\u6237\u5df2\u53d6\u6d88\uff08\u7b2c " + step + "/" + totalSteps + " \u6b65\uff09");
+        return r;
+    }
+
+    private static void bump(Map<String, Integer> d, String k) {
+        d.merge(k, 1, Integer::sum);
+    }
+
+    public static interface Progress {
+        public void report(int var1, int var2, String var3);
+
+        public boolean cancelled();
+    }
+}
