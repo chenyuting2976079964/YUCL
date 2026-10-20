@@ -1,27 +1,27 @@
 <template>
   <div class="cb-card" :data-id="entity.id">
     <div class="cb-head">
-      <input class="cb-name" v-model="entity.name" placeholder="名称">
-      <button type="button" class="cb-del" @click="emit('removed', entity)">删除</button>
+      <input class="cb-name" v-model="entity.name" :placeholder="t('name_ph')">
+      <button type="button" class="cb-del" @click="emit('removed', entity)">{{ t("del") }}</button>
     </div>
     <div class="cb-src">
-      <button type="button" :class="{ on: entity.src === 'upload' }" @click="switchSrc('upload')">上传图片</button>
-      <button type="button" :class="{ on: entity.src === 'prompt' }" @click="switchSrc('prompt')">提示词</button>
+      <button type="button" :class="{ on: entity.src === 'upload' }" @click="switchSrc('upload')">{{ t("upload_img") }}</button>
+      <button type="button" :class="{ on: entity.src === 'prompt' }" @click="switchSrc('prompt')">{{ t("prompt") }}</button>
     </div>
     <div class="cb-body">
       <img v-if="entity.imgSrc" class="cb-img" :src="entity.imgSrc" referrerpolicy="no-referrer">
       <div v-else class="cb-imgph">暂无图片<br>生成或上传</div>
       <div class="cb-prompt">
         <template v-if="entity.src === 'prompt'">
-          <textarea v-model="entity.prompt" placeholder="描述这张图，例：蓝发女孩站在滑板公园"></textarea>
+          <textarea v-model="entity.prompt" :placeholder="t('desc_ph')"></textarea>
           <button type="button" class="cb-gen" :disabled="busy" @click="genImage">
-            {{ busy ? "生成中…" : "重新生成" }}
+            {{ busy ? t("generating") : t("regenerate") }}
           </button>
         </template>
         <template v-else>
           <input ref="fileInp" type="file" class="cb-file" accept=".png,.jpg,.jpeg,.webp,.gif,.bmp" @change="upload">
           <div style="font-size:11px;color:var(--dim2);margin-top:5px">
-            {{ entity.path ? "已选：" + entity.path.split(/[\\/]/).pop() : "选择本地图片文件（≤50MB）" }}
+            {{ entity.path ? t("selected") + "：" + entity.path.split(/[\\/]/).pop() : t("select_file") }}
           </div>
         </template>
       </div>
@@ -45,6 +45,7 @@
 import { ref } from "vue";
 import { api, baseUrl, type Options, type VoiceItem } from "../api";
 import { uiAlert } from "../dialogs";
+import { t } from "../i18n";
 import type { CbEntity } from "./CharBgForm.vue";
 
 const props = defineProps<{

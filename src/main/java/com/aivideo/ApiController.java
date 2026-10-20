@@ -1120,6 +1120,20 @@ public class ApiController {
         return r;
     }
 
+    @PostMapping(value={"/window/reset"})
+    public Map<String, Object> windowReset() {
+        LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
+        Runnable h = AppShell.windowResetHook;
+        if (h != null) {
+            h.run();
+            r.put("ok", true);
+            return r;
+        }
+        r.put("ok", false);
+        r.put("error", "window hook not ready");
+        return r;
+    }
+
     @GetMapping(value={"/logs"})
     public Map<String, Object> logs(@RequestParam(name="lines", required=false, defaultValue="200") int lines) {
         ArrayList<String> out = new ArrayList<String>();

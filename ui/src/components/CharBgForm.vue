@@ -1,96 +1,113 @@
 <template>
-  <form id="f-charbg" class="pane" @submit.prevent="submit">
-    <div class="cb-sec-h">人物图片 <span class="hint" style="font-weight:400">每张可上传或提示词生成</span></div>
-    <EntityCard v-for="e in chars" :key="e.id" :entity="e" kind="chars" :options="store.options"
-      :voices="store.voices" :prov-id="provId" :img-model="imgModel" @removed="renderAll" />
-    <button type="button" class="cb-addbtn" @click="addEntity('chars')">＋ 添加人物</button>
-
-    <div class="cb-sec-h">背景图片 <span class="hint" style="font-weight:400">每张可上传或提示词生成</span></div>
-    <EntityCard v-for="e in bgs" :key="e.id" :entity="e" kind="bgs" :options="store.options"
-      :voices="store.voices" :prov-id="provId" :img-model="imgModel" @removed="renderAll" />
-    <button type="button" class="cb-addbtn" @click="addEntity('bgs')">＋ 添加背景</button>
-
-    <div class="cb-sec-h">镜头 <span class="hint" style="font-weight:400">每镜 1–2 个人物 + 1 个背景</span></div>
-    <div v-for="(sh, i) in shots" :key="i" class="cb-shot" :data-i="i">
-      <div class="srow">
-        <select v-model="sh.char" title="人物 1">
-          <option :value="0">— 无 —</option>
-          <option v-for="c in chars" :key="c.id" :value="c.id">{{ c.name }}</option>
-        </select>
-        <select v-model="sh.char2" title="人物 2（可选）">
-          <option :value="0">— 无 —</option>
-          <option v-for="c in chars" :key="c.id" :value="c.id">{{ c.name }}</option>
-        </select>
-      </div>
-      <div class="srow">
-        <select v-model="sh.bg" title="背景">
-          <option :value="0">— 无 —</option>
-          <option v-for="b in bgs" :key="b.id" :value="b.id">{{ b.name }}</option>
-        </select>
-        <input v-model.number="sh.seconds" type="number" min="3" max="12" title="时长（秒）">
-      </div>
-      <div class="srow"><input class="full" v-model="sh.text" placeholder="动作 / 旁白"></div>
-      <div class="srow">
-        <select v-model="sh.engine">
-          <option value="local">本地合成（离线）</option>
-          <option value="ai">Agnes AI 动态</option>
-        </select>
-        <button type="button" class="cb-del" @click="shots.splice(i, 1)">删除镜头</button>
+  <form id="f-charbg" class="pane flow" @submit.prevent="submit">
+    <!-- 步骤指示器 -->
+    <div class="flow-steps">
+      <div v-for="st in steps" :key="st.k" class="fstep" :class="{ done: st.done }">
+        <div class="fnum">{{ st.done ? "✓" : st.n }}</div>
+        <div class="flbl">{{ st.name }}</div>
       </div>
     </div>
-    <button type="button" class="cb-addbtn" @click="addShot">＋ 添加镜头</button>
 
-    <div class="row" style="margin-top:12px">
-      <div class="field">
-        <label class="lbl">画幅</label>
-        <select v-model="orientation">
-          <option v-for="o in store.options?.orientations || []" :key="o.key" :value="o.key">{{ o.title || o.label || o.key }}</option>
-        </select>
-      </div>
-      <div class="field">
-        <label class="lbl" title="开放 harness：生成走哪家模型网关（下方「模型配置」可增删）">模型供应商</label>
-        <select v-model="provId">
-          <option v-for="p in store.providers" :key="p.id" :value="p.id">{{ provLabel(p) }}</option>
-        </select>
-      </div>
-      <div class="field">
-        <label class="lbl">视频模型 <span class="hint">ai 引擎</span></label>
-        <select v-model="videoModel">
-          <option v-for="m in videoModelList" :key="m" :value="m">{{ m }}</option>
-        </select>
-      </div>
-      <div class="field">
-        <label class="lbl">生图模型 <span class="hint">提示词卡</span></label>
-        <select v-model="imgModel">
-          <option v-for="m in imgModelList" :key="m" :value="m">{{ m }}</option>
-        </select>
-      </div>
+    <div class="flow-sec" id="step1">
+      <div class="cb-sec-h"><span class="stepbadge">①</span> {{ t("step1") }} <span class="hint" style="font-weight:400">{{ t("step1_hint") }}</span></div>
+      <EntityCard v-for="e in chars" :key="e.id" :entity="e" kind="chars" :options="store.options"
+        :voices="store.voices" :prov-id="provId" :img-model="imgModel" @removed="renderAll" />
+      <button type="button" class="cb-addbtn" @click="addEntity('chars')">{{ t("add_char") }}</button>
     </div>
-    <div class="row">
-      <div class="field">
-        <label class="lbl">人物大小</label>
-        <input type="range" v-model.number="charScale" min="0.4" max="0.9" step="0.05">
-        <div style="font-size:11px;color:var(--dim2);margin-top:4px">占画面高度比例 · 越大越近 <b style="color:var(--fg)">{{ charScale.toFixed(2) }}</b></div>
-      </div>
-      <div class="field">
-        <label class="lbl">单人站位</label>
-        <select v-model="charPos">
-          <option value="bottom-left">左下</option>
-          <option value="bottom-center">中下</option>
-          <option value="bottom-right">右下</option>
-          <option value="center">居中</option>
-        </select>
-        <div style="font-size:11px;color:var(--dim2);margin-top:4px">两人同框时自动左/右分置</div>
-      </div>
+
+    <div class="flow-sec" id="step2">
+      <div class="cb-sec-h"><span class="stepbadge">②</span> {{ t("step2") }} <span class="hint" style="font-weight:400">{{ t("step2_hint") }}</span></div>
+      <EntityCard v-for="e in bgs" :key="e.id" :entity="e" kind="bgs" :options="store.options"
+        :voices="store.voices" :prov-id="provId" :img-model="imgModel" @removed="renderAll" />
+      <button type="button" class="cb-addbtn" @click="addEntity('bgs')">{{ t("add_bg") }}</button>
     </div>
-    <label class="check"><input type="checkbox" v-model="subtitles"> 烧录字幕</label>
-    <label class="check"><input type="checkbox" v-model="narration"> 旁白配音（人物卡可各设音源；关=静默）</label>
-    <button class="btn" type="submit" :disabled="submitting">
-      {{ submitting ? "启动中…" : "生成人物·背景视频" }}
-    </button>
-    <div class="status">{{ status }}</div>
-    <div class="vwarn">{{ voiceWarn }}</div>
-    <div class="err">{{ error }}</div>
+
+    <div class="flow-sec" id="step3">
+      <div class="cb-sec-h"><span class="stepbadge">③</span> {{ t("step3") }} <span class="hint" style="font-weight:400">{{ t("step3_hint") }}</span></div>
+      <div v-for="(sh, i) in shots" :key="i" class="cb-shot" :data-i="i">
+        <div class="srow">
+          <select v-model="sh.char" :title="t('char1')">
+            <option :value="0">{{ t("none") }}</option>
+            <option v-for="c in chars" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+          <select v-model="sh.char2" :title="t('char2')">
+            <option :value="0">{{ t("none") }}</option>
+            <option v-for="c in chars" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </div>
+        <div class="srow">
+          <select v-model="sh.bg" :title="t('bg_label')">
+            <option :value="0">{{ t("none") }}</option>
+            <option v-for="b in bgs" :key="b.id" :value="b.id">{{ b.name }}</option>
+          </select>
+          <input v-model.number="sh.seconds" type="number" min="3" max="12" :title="t('duration')">
+        </div>
+        <div class="srow"><input class="full" v-model="sh.text" :placeholder="t('action_ph')"></div>
+        <div class="srow">
+          <select v-model="sh.engine">
+            <option value="local">{{ t("engine_local") }}</option>
+            <option value="ai">{{ t("engine_ai") }}</option>
+          </select>
+          <button type="button" class="cb-del" @click="shots.splice(i, 1)">{{ t("del_shot") }}</button>
+        </div>
+      </div>
+      <button type="button" class="cb-addbtn" @click="addShot">{{ t("add_shot") }}</button>
+    </div>
+
+    <div class="flow-sec" id="step4">
+      <div class="cb-sec-h"><span class="stepbadge">④</span> {{ t("step4") }} <span class="hint" style="font-weight:400">{{ t("step4_hint") }}</span></div>
+      <div class="row">
+        <div class="field">
+          <label class="lbl">{{ t("orientation") }}</label>
+          <select v-model="orientation">
+            <option v-for="o in store.options?.orientations || []" :key="o.key" :value="o.key">{{ o.title || o.label || o.key }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="lbl" title="开放 harness：生成走哪家模型网关（设置→模型配置 可增删）">{{ t("provider") }}</label>
+          <select v-model="provId">
+            <option v-for="p in store.providers" :key="p.id" :value="p.id">{{ provLabel(p) }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="lbl">{{ t("video_model") }} <span class="hint">ai 引擎</span></label>
+          <select v-model="videoModel">
+            <option v-for="m in videoModelList" :key="m" :value="m">{{ m }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="lbl">{{ t("img_model") }}</label>
+          <select v-model="imgModel">
+            <option v-for="m in imgModelList" :key="m" :value="m">{{ m }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label class="lbl">{{ t("char_scale") }}</label>
+          <input type="range" v-model.number="charScale" min="0.4" max="0.9" step="0.05">
+          <div style="font-size:11px;color:var(--dim2);margin-top:4px">占画面高度比例 · 越大越近 <b style="color:var(--fg)">{{ charScale.toFixed(2) }}</b></div>
+        </div>
+        <div class="field">
+          <label class="lbl">{{ t("char_pos") }}</label>
+          <select v-model="charPos">
+            <option value="bottom-left">{{ t("pos_bl") }}</option>
+            <option value="bottom-center">{{ t("pos_bc") }}</option>
+            <option value="bottom-right">{{ t("pos_br") }}</option>
+            <option value="center">{{ t("pos_c") }}</option>
+          </select>
+          <div style="font-size:11px;color:var(--dim2);margin-top:4px">两人同框时自动左/右分置</div>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" v-model="subtitles"> {{ t("subtitles") }}</label>
+      <label class="check"><input type="checkbox" v-model="narration"> {{ t("narration") }}</label>
+      <button class="btn big" type="submit" :disabled="submitting">
+        🎬 {{ submitting ? t("starting") : t("gen_video") }}
+      </button>
+      <div class="status">{{ status }}</div>
+      <div class="vwarn">{{ voiceWarn }}</div>
+      <div class="err">{{ error }}</div>
+    </div>
   </form>
 </template>
 
@@ -99,6 +116,7 @@ import { computed, inject, ref, watch } from "vue";
 import { api, baseUrl, type MakeCharBgBody, type Provider, type ScriptDoc } from "../api";
 import { useAppStore } from "../store";
 import { uiAlert } from "../dialogs";
+import { t } from "../i18n";
 import EntityCard from "./EntityCard.vue";
 
 // App 提供旁白声源卡 / BGM 卡的 ref 读取函数（提交时读取负载）
@@ -149,6 +167,14 @@ function provLabel(p: Provider) {
 const activeProv = computed(() => store.providers.find(p => p.id === provId.value) || store.providers.find(p => p.id === store.activeProvider));
 const videoModelList = computed(() => activeProv.value?.video_models || []);
 const imgModelList = computed(() => activeProv.value?.image_models || []);
+
+// 步骤指示器：①人物图 ②场景图 ③内容描述 ④生成视频
+const steps = computed(() => [
+  { k: "c", n: 1, name: t("step1"), done: chars.value.some(c => c.path || c.url) },
+  { k: "b", n: 2, name: t("step2"), done: bgs.value.some(b => b.path || b.url) },
+  { k: "s", n: 3, name: t("step3"), done: shots.value.some(s => s.text.trim() !== "") },
+  { k: "g", n: 4, name: t("step4"), done: false }
+]);
 
 // 供应商/选项变化时同步默认模型
 watch(() => [store.options, store.activeProvider, provId.value] as const, () => {

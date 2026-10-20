@@ -49,6 +49,30 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 .badge.ok .dot{background:var(--ok);box-shadow:0 0 0 0 rgba(61,220,151,.6);animation:pulse 1.8s infinite}
 .badge.no{color:#ffe6c4;border-color:rgba(255,180,84,.4);background:rgba(255,180,84,.09)}
 .badge.no .dot{background:var(--warn)}
+.setbtn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;margin-left:10px;
+  border:1px solid var(--border);background:var(--panel);color:var(--fg2);font-size:11.5px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
+.setbtn:hover{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
+.setbtn svg{width:14px;height:14px}
+/* 窗口密度：紧凑模式收紧卡片间距与内边距 */
+html[data-density="compact"] .pane{padding:12px 14px;margin-bottom:10px}
+html[data-density="compact"] .col{padding:14px 16px}
+html[data-density="compact"] .wrap{gap:12px}
+html[data-density="compact"] .cb-card{margin-bottom:8px}
+
+/* ---- 四步流程（人物图 → 场景图 → 内容描述 → 生成视频）---- */
+.flow-steps{display:flex;gap:6px;margin:2px 0 16px;padding:10px;border:1px dashed var(--border);border-radius:10px;background:color-mix(in srgb, var(--accent) 4%, transparent)}
+.fstep{flex:1;display:flex;align-items:center;gap:7px;padding:6px 9px;border-radius:8px;background:var(--panel);border:1px solid var(--border)}
+.fnum{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;color:var(--dim);background:var(--bg);border:1px solid var(--border);flex:0 0 auto}
+.flbl{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fstep.done{border-color:color-mix(in srgb, var(--accent) 55%, transparent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
+.fstep.done .fnum{color:#fff;background:var(--accent);border-color:var(--accent)}
+.fstep.done .flbl{color:var(--fg2);font-weight:600}
+.flow-sec{margin-bottom:18px}
+.flow-sec:last-child{margin-bottom:0}
+.stepbadge{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:6px;font-size:11px;font-weight:800;color:#fff;background:var(--grad);margin-right:4px;vertical-align:-3px}
+.btn.big{width:100%;justify-content:center;margin-top:14px;padding:13px;font-size:14px;font-weight:800;letter-spacing:.03em;
+  background:var(--grad);border:none;color:#fff;box-shadow:0 10px 26px color-mix(in srgb, var(--accent) 45%, transparent)}
+.btn.big:disabled{opacity:.55;cursor:wait}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,151,.55)}70%{box-shadow:0 0 0 7px rgba(61,220,151,0)}100%{box-shadow:0 0 0 0 rgba(61,220,151,0)}}
 
 /* ---- 卡片（声源 / BGM） ---- */
