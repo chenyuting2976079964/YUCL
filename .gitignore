@@ -1,5 +1,6 @@
 target/
 dist/
+ui/node_modules/
 dist-staging-setup/
 dist-staging-uninstall/
 build-tools/classes/
