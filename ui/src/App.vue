@@ -68,9 +68,16 @@ function onScriptApplied(s: ScriptDoc, msg: string) {
 }
 
 onMounted(async () => {
-  try {
-    await store.loadOptions();
-  } catch { /* backendWarn 已显示 */ }
+  // 页面先于后端就绪时自动重试（服务还在起 → 界面立即可用，不再干等）
+  for (let i = 0; i < 120; i++) {
+    try {
+      await store.loadOptions();
+      break;
+    } catch {
+      provBadge.value = "服务启动中…";
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
   store.loadVoices();
   store.loadMusic();
   store.loadJobs();

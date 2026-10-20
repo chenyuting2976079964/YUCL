@@ -19,7 +19,7 @@ echo [3/5] app image
 if exist dist\YUCL rmdir /s /q dist\YUCL
 mkdir staging-app 2>nul
 copy /y target\ai-video-java.jar staging-app\ >nul
-%JP% --type app-image --name YUCL --input "D:\yucl-src\staging-app" --main-jar ai-video-java.jar --main-class org.springframework.boot.loader.launch.JarLauncher --icon "D:\yucl-src\app.ico" --dest "D:\yucl-src\dist" --java-options "-Djpackage.app-version=1.0.0" || goto :err
+%JP% --type app-image --name YUCL --input "D:\yucl-src\staging-app" --main-jar ai-video-java.jar --main-class org.springframework.boot.loader.launch.JarLauncher --icon "D:\yucl-src\app.ico" --dest "D:\yucl-src\dist" --java-options "-Djpackage.app-version=1.0.0 -XX:TieredStopAtLevel=1" || goto :err
 
 echo [4/5] uninstaller + setup
 if exist dist\YUCL-Uninstall rmdir /s /q dist\YUCL-Uninstall

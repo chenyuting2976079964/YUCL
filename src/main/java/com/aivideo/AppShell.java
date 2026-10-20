@@ -117,9 +117,9 @@ extends Application {
         engine.getLoadWorker();
         Thread boot = new Thread(() -> {
             int tries = 0;
-            while (tries++ < 120 && !this.healthzUp()) {
+            while (tries++ < 300 && !this.healthzUp()) {
                 try {
-                    Thread.sleep(500L);
+                    Thread.sleep(100L);
                 }
                 catch (InterruptedException e) {
                     // empty catch block
