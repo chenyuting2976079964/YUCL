@@ -79,8 +79,11 @@ git tag v1.x.y -m "stable"
 
 - 分支：`main` 为唯一主干；实验性改动开分支，稳了再并回 `main`。
 - `target/`、`dist/`、`build-tools/classes/` 已 gitignore，不进库。
-- 远端（GitHub）：本机当前访问 GitHub 不稳定；`gh` 已装但未登录。
-  有网络时 `git remote add origin <repo>` + `gh auth login` 再推。
+- 远端（GitHub）：`https://github.com/chenyuting2976079964/YUCL`（公开）。
+  本机要走系统代理（127.0.0.1:7897），git 推的时候带上：
+  `set HTTPS_PROXY=http://127.0.0.1:7897 & git push origin main`。
+  认证走 `gh auth login`（设备码，已在 keyring，重跑 `gh auth status` 即可）。
+  **远端历史保持干净**：staging-app/ 等大产物已 gitignore，不要 commit 进库。
 
 ## 本地开发运行
 ```
