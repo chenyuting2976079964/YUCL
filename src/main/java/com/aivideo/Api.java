@@ -219,8 +219,23 @@ public class Api {
 
     @PostMapping(value={"/provider-test"})
     public Map<String, Object> providerTest(@RequestBody Map<String, Object> prov) {
-        Object base = String.valueOf(prov.getOrDefault("base_url", "")).trim();
+        String base = String.valueOf(prov.getOrDefault("base_url", "")).trim();
         String key = String.valueOf(prov.getOrDefault("api_key", "")).trim();
+        String builtinNote = "";
+        // 内置供应商（如 Agnes）的 key 不在 provider-config.json 里（在 config.yaml/env），
+        // 卡片上 key 为空时回落到 Agnesa 内置凭据，否则永远提示"需要 API Key"。
+        if (base.isEmpty() || key.isEmpty()) {
+            List<String[]> eps = Agnesa.providerEndpoints();
+            if (!eps.isEmpty()) {
+                if (base.isEmpty()) {
+                    base = eps.get(0)[0];
+                }
+                if (key.isEmpty()) {
+                    key = eps.get(0)[1];
+                    builtinNote = "\uff08\u5df2\u4f7f\u7528\u5185\u7f6e\u51ed\u8bc1\uff09";
+                }
+            }
+        }
         if (((String)base).isEmpty() || key.isEmpty()) {
             return Map.of("ok", false, "error", "\u9700\u8981 Base URL \u548c API Key");
         }
@@ -251,7 +266,7 @@ public class Api {
                 }
                 out.put("ok", true);
                 out.put("models", names);
-                out.put("hint", names.isEmpty() ? "\u8fde\u63a5\u6b63\u5e38" : "\u8fde\u63a5\u6b63\u5e38 \u00b7 \u53d1\u73b0 " + names.size() + " \u4e2a\u6a21\u578b\uff0c\u53ef\u590d\u5236\u586b\u5165\u4e0a\u65b9\u6a21\u578b\u5217\u8868");
+                out.put("hint", (names.isEmpty() ? "\u8fde\u63a5\u6b63\u5e38" : "\u8fde\u63a5\u6b63\u5e38 \u00b7 \u53d1\u73b0 " + names.size() + "\u4e2a\u6a21\u578b\uff0c\u53ef\u590d\u5236\u586b\u5165\u4e0a\u65b9\u6a21\u578b\u5217\u8868") + builtinNote);
                 return out;
             }
             out.put("ok", false);

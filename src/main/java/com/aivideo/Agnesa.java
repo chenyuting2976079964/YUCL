@@ -247,7 +247,7 @@ public final class Agnesa {
                 if (size != null && !size.isEmpty()) {
                     body.put("size", size);
                 }
-                if ((r = (http = Agnesa.newClient(180)).send(HttpRequest.newBuilder(URI.create(host + "/v1/images/generations")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(180L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() >= 400) {
+                if ((r = (http = Agnesa.newClient(180)).send(HttpRequest.newBuilder(URI.create(host + "/v1/images/generations")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(120L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() >= 400) {
                     lastErr = "Agnes image rejected (HTTP " + r.statusCode() + "): " + r.body().substring(0, Math.min(300, r.body().length()));
                     continue;
                 }
@@ -258,7 +258,7 @@ public final class Agnesa {
                     lastErr = "Agnes image returned no url: " + r.body().substring(0, Math.min(200, r.body().length()));
                     continue;
                 }
-                HttpResponse<byte[]> dr = http.send(HttpRequest.newBuilder(URI.create(url)).GET().timeout(Duration.ofSeconds(180L)).build(), HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<byte[]> dr = http.send(HttpRequest.newBuilder(URI.create(url)).GET().timeout(Duration.ofSeconds(60L)).build(), HttpResponse.BodyHandlers.ofByteArray());
                 if (dr.statusCode() >= 400) {
                     lastErr = "Agnes image download failed (HTTP " + dr.statusCode() + ")";
                     continue;

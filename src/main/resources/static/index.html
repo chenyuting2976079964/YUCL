@@ -1125,11 +1125,20 @@ async function cbGenImage(e, kind){
   const btn = card && card.querySelector('[data-act=gen]');
   if(btn){ btn.disabled = true; btn.textContent = '生成中…'; }
   try{
-    const j = await (await fetch(API + '/agnes-image', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: e.prompt, size: '1024x1024', model: ($("#cb-imgmodel") && $("#cb-imgmodel").value) || "" }) })).json().catch(() => ({}));
-    if(j && j.ok){ e.path = j.local_path || ''; e.url = j.url || ''; e.imgSrc = j.url || ''; }
-    else { await uiAlert('生成失败：' + ((j && (j.error || j.detail)) || '未知错误')); return; }
-  }catch(ex){ await uiAlert('生成失败：' + ex.message); return; }
+    // 客户端 4 分钟兜底超时：服务端单端点最长 120s+60s，防止卡死在"生成中…"
+    const ctl = new AbortController();
+    const tid = setTimeout(()=>ctl.abort(), 240000);
+    try{
+      const j = await (await fetch(API + '/agnes-image', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: e.prompt, size: '1024x1024', model: ($("#cb-imgmodel") && $("#cb-imgmodel").value) || "" }), signal: ctl.signal })).json().catch(() => ({}));
+      clearTimeout(tid);
+      if(j && j.ok){ e.path = j.local_path || ''; e.url = j.url || ''; e.imgSrc = j.url || ''; }
+      else { await uiAlert('生成失败：' + ((j && (j.error || j.detail)) || '未知错误')); }
+    }catch(ex){
+      clearTimeout(tid);
+      await uiAlert('生成失败：' + (ex.name === 'AbortError' ? '超时（超过 4 分钟）' : ex.message));
+    }
+  }catch(ex){ await uiAlert('生成失败：' + ex.message); }
   if(btn){ btn.disabled = false; btn.textContent = '重新生成'; }
   renderCbCards(kind);
 }
@@ -1139,8 +1148,8 @@ async function cbUpload(e, kind, input){
     const fd = new FormData(); fd.append('file', f, f.name);
     const j = await (await fetch(API + '/images/upload', { method: 'POST', body: fd })).json().catch(() => ({}));
     if(j && j.ok){ e.path = j.path || ''; e.url = ''; e.imgSrc = API + '/images/preview?name=' + encodeURIComponent(j.name); }
-    else { await uiAlert('上传失败：' + ((j && j.detail) || '未知错误')); return; }
-  }catch(ex){ await uiAlert('上传失败：' + ex.message); return; }
+    else { await uiAlert('上传失败：' + ((j && (j.detail || j.error)) || '未知错误')); }
+  }catch(ex){ await uiAlert('上传失败：' + ex.message); }
   renderCbCards(kind);
 }
 
