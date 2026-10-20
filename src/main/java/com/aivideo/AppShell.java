@@ -83,7 +83,7 @@ extends Application {
     private Stage stage;
 
     public AppShell(String baseUrl, Runnable onShutdown) {
-        this.baseUrl = baseUrl;
+        this.baseUrl = baseUrl.replaceAll("/+$", "");
         this.onShutdown = onShutdown;
     }
 
@@ -100,7 +100,9 @@ extends Application {
         s.setWidth(geo[0]);
         s.setHeight(geo[1]);
         WebView view = new WebView();
+        trace("webview ctor start");
         WebEngine engine = view.getEngine();
+        trace("webview ctor done");
         trace("window shown");
         log.info("[boot] window shown t+{}ms", System.currentTimeMillis() - S0);
         final java.util.concurrent.atomic.AtomicInteger loads = new java.util.concurrent.atomic.AtomicInteger();
@@ -120,9 +122,7 @@ extends Application {
         spinner.setStyle("-fx-progress-indicator: 26;");
         Label hint = new Label("\u670d\u52a1\u6b63\u5728\u542f\u52a8\uff0c\u7a0d\u5019\u2026");
         hint.setStyle("-fx-font-size: 12; -fx-text-fill: #535d78;");
-        Label hint2 = new Label("\u9996\u6b21\u542f\u52a8/\u521a\u66f4\u5bae\u65f6\u8f83\u6162\uff08\u6740\u6bd1\u8f6f\u4ef6\u626b\u63cf\uff09");
-        hint2.setStyle("-fx-font-size: 11; -fx-text-fill: #444c66;");
-        splash.getChildren().addAll(brand, tag, spinner, hint, hint2);
+        splash.getChildren().addAll(brand, tag, spinner, hint);
         splash.setPrefWidth(220.0);
         javafx.scene.layout.BorderPane splashRoot = new javafx.scene.layout.BorderPane();
         splashRoot.setCenter(splash);
@@ -162,7 +162,7 @@ extends Application {
                 splashRoot.setManaged(false);
                 trace("healthz ok, loading page");
                 log.info("[boot] healthz ok t+{}ms — loading page", System.currentTimeMillis() - S0);
-                engine.load(this.baseUrl);
+                engine.load(this.baseUrl + "/");
             });
         }, "yucl-shell-boot");
         boot.setDaemon(true);
