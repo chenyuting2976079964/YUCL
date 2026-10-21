@@ -493,17 +493,19 @@ extends Application {
         javafx.scene.paint.Color c = javafx.scene.paint.Color.web("#c2c8d6");
         return iconCanvas(24.0, g -> {
             g.setStroke(c);
-            // 齿带：8 段粗弧（齿 30°/缝 15°），r=6
-            g.setLineWidth(3.4);
+            // 齿带：6 段粗弧（齿 36°/缝 24°），r=6.2，与下方圆环带宽相接（不脱节）
+            g.setLineWidth(3.2);
             g.setLineCap(javafx.scene.shape.StrokeLineCap.BUTT);
-            for (int i = 0; i < 8; i++) {
-                g.strokeArc(6.0, 6.0, 12.0, 12.0, -90.0 + i * 45.0 - 15.0, 30.0,
+            for (int i = 0; i < 6; i++) {
+                g.strokeArc(12.0 - 6.2, 12.0 - 6.2, 12.4, 12.4, -90.0 + i * 60.0 - 18.0, 36.0,
                         javafx.scene.shape.ArcType.OPEN);
             }
-            // 中心孔
+            // 环（与齿带带宽 4.6..7.8 相接）+ 中心点
             g.setLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
-            g.setLineWidth(1.6);
-            g.strokeOval(12.0 - 2.4, 12.0 - 2.4, 4.8, 4.8);
+            g.setLineWidth(1.9);
+            g.strokeOval(12.0 - 3.6, 12.0 - 3.6, 7.2, 7.2);
+            g.setFill(c);
+            g.fillOval(12.0 - 1.1, 12.0 - 1.1, 2.2, 2.2);
         });
     }
 
