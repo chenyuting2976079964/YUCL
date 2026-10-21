@@ -111,6 +111,9 @@ extends Application {
         view.setMinHeight(0.0);
         view.setMaxWidth(Double.MAX_VALUE);
         view.setMaxHeight(Double.MAX_VALUE);
+        // WebView 默认背景为浅色：页面内容比控件窄亚像素时，右缘会漏出 1px 浅灰/白线（"白杠"根因）。
+        // 把控件背景染成应用深色，任何缝隙都显示为深色而非白。
+        view.setStyle("-fx-background-color:#0a0b0f; -fx-background-radius:0;");
         trace("webview ctor start");
         WebEngine engine = view.getEngine();
         trace("webview ctor done");
@@ -230,6 +233,9 @@ extends Application {
         outer.setBackground(new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
                 javafx.scene.paint.Color.web("#0b0d14"), null, null)));
         s.setScene(new Scene(outer, geo[0] / this.outScale, geo[1] / this.outScale));
+        // 根因：new Scene() 默认 fill 为纯白。webview 内容(973)比场景(974)窄 1px 时，
+        // 右缘亚像素缝隙露出 Scene 白底 → 那条"竖白杠"。染成应用深色，任何缝隙都不再发白。
+        s.getScene().setFill(javafx.scene.paint.Color.web("#0a0b0f"));
         // 缩放后可观测性：布局真正重排完成（250ms 后、当帧脉冲结束）才记录最终尺寸，
         // 直接读属性变更瞬间会抓到同一帧内的中间值（1s 节流 + 去重，避免拖拽刷屏）
         final java.util.concurrent.atomic.AtomicBoolean settlePending = new java.util.concurrent.atomic.AtomicBoolean(false);

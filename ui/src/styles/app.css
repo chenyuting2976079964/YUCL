@@ -24,6 +24,7 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%;overflow:hidden}
+#app{height:100%}
 html{color-scheme:dark}
 body{margin:0;color:var(--fg);background:var(--bg);
   font:13.5px/1.55 "Segoe UI Variable","Segoe UI",system-ui,"Microsoft YaHei","PingFang SC",sans-serif;
@@ -46,7 +47,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 *::-webkit-scrollbar{width:0;height:0;display:none}
 
 /* ---- 布局 ---- */
-.wrap{display:grid;grid-template-columns:472px 1fr;height:100vh}
+.wrap{display:grid;grid-template-columns:472px 1fr;height:100%}
 .col{overflow:hidden;padding:24px 26px}
 .col.left{background:var(--bg2);border-right:1px solid rgba(0,0,0,.45)}
 
