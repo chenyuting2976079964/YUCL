@@ -36,13 +36,14 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
     radial-gradient(820px 520px at 105% -6%, rgba(143,125,248,.055), transparent 62%),
     var(--bg)}
 ::selection{background:color-mix(in srgb, var(--a) 30%, transparent)}
-/* 滚动条：深色细滑轨，平时几乎隐形、悬停才显现（电影感"界面隐形"原则；
-   不用白色滑块——高 DPI 真实窗口里白条很突兀） */
-*{scrollbar-width:thin;scrollbar-color:#2c3140 transparent}
-*::-webkit-scrollbar{width:7px;height:7px}
-*::-webkit-scrollbar-track{background:transparent}
-*::-webkit-scrollbar-thumb{background:#2c3140;border-radius:7px;min-height:36px}
-*::-webkit-scrollbar-thumb:hover{background:#414961}
+/* 滚动条：完全隐藏（电影感"界面隐形"），但滚动能力完整保留——
+   滚轮 / 键盘 / 触控全部是原生行为，只是不再画那条白杠。
+   三重保险覆盖不同引擎：
+   scrollbar-width:none（现代标准，Chromium121+/Firefox）
+   ::-webkit-scrollbar display:none（WebKit 路径，JavaFX WebEngine 走这里）
+   -ms-overflow-style（旧 Edge/IE） */
+*{scrollbar-width:none;-ms-overflow-style:none}
+*::-webkit-scrollbar{width:0;height:0;display:none}
 
 /* ---- 布局 ---- */
 .wrap{display:grid;grid-template-columns:472px 1fr;height:100vh}
