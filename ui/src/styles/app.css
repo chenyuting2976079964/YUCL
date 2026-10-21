@@ -47,7 +47,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 
 /* ---- 布局 ---- */
 .wrap{display:grid;grid-template-columns:472px 1fr;height:100vh}
-.col{overflow:auto;padding:24px 26px}
+.col{overflow:hidden;padding:24px 26px}
 .col.left{background:var(--bg2);border-right:1px solid rgba(0,0,0,.45)}
 
 /* 可折叠卡片（旁白/BGM/剧本 收纳，主流程不被埋没） */
