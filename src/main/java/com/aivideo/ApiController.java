@@ -43,6 +43,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.PostConstruct;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.BufferedInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -67,6 +68,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -1367,7 +1369,38 @@ public class ApiController {
 
     @ExceptionHandler(value={MultipartException.class})
     public ResponseEntity<Map<String, Object>> multipartError(MultipartException e) {
-        return ResponseEntity.badRequest().body(Map.of("ok", false, "detail", "\u6587\u4ef6\u4e0a\u4f20/\u6062\u590d\u9700\u8981 multipart \u8868\u5355\uff08\u8bf7\u5728\u754c\u9762\u91cc\u9009\u62e9\u6587\u4ef6\uff09"));
+        return ResponseEntity.badRequest().body(Map.of("ok", false, "detail", "文件上传/恢复需要 multipart 表单（请在界面里选择文件）"));
+    }
+
+    /**
+     * 通用兜底：任何未被更具体 @ExceptionHandler 捕获的运行时异常，统一返回 JSON
+     * {ok:false,error,detail}，避免 Spring 默认吐出 HTML 错误页让前端解析失败。
+     * MultipartException 等更具体的处理器会优先命中，不会被此吞并。
+     */
+    @ExceptionHandler(value={Exception.class})
+    public ResponseEntity<Map<String, Object>> unexpected(Exception e) {
+        String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        int status = 500;
+        if (e instanceof org.springframework.web.server.ResponseStatusException rse) {
+            status = rse.getStatusCode().value();
+        }
+        // 记入 app.log（维护面板「日志」可查）
+        try {
+            Path p = Paths.get(this.logFile, new String[0]);
+            if (p.getParent() != null) {
+                Files.createDirectories(p.getParent());
+            }
+            BufferedWriter w = Files.newBufferedWriter(p, StandardCharsets.UTF_8, new java.nio.file.OpenOption[] { StandardOpenOption.CREATE, StandardOpenOption.APPEND });
+            try (w) {
+                w.write(new Date().toString() + " UNHANDLED " + e.getClass().getName() + " " + msg + System.lineSeparator());
+            }
+        }
+        catch (Exception ignored) {
+        }
+        return ResponseEntity.status(status).body(Map.of(
+            "ok", false,
+            "error", "服务器内部异常: " + msg,
+            "detail", e.getClass().getSimpleName()));
     }
 
     private Path restoreTarget(String entry) {

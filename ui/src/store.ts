@@ -57,8 +57,19 @@ export const useAppStore = defineStore("app", {
       } catch { /* 静默 */ }
     },
     async loadJobs() {
-      const j = await api.recent();
-      this.jobs = j.jobs || [];
+      let fetchOk = true;
+      try {
+        const j = await api.recent();
+        if (j && Array.isArray(j.jobs)) {
+          this.jobs = j.jobs;
+        } else {
+          // 后端异常（非 2xx/结构化错误）时保留旧列表，避免任务面板凭空清空
+          fetchOk = false;
+        }
+      } catch { /* 网络异常：保留旧列表，静默 */ fetchOk = false; }
+      if (!fetchOk) {
+        return;
+      }
       const hasRunning = this.jobs.some(x => (x.status || "done") === "running");
       if (hasRunning && !this.runningPoll) {
         this.runningPoll = true;

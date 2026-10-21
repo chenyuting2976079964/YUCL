@@ -219,12 +219,14 @@ public final class FfmpegCore {
             pb.directory(new File(workdir));
         }
         pb.redirectErrorStream(false);
+        Process p = null;
         try {
-            Process p;
-            currentFfmpeg = p = pb.start();
+            p = pb.start();
+            final Process started = p; // lambda 捕获需要 effectively final 的别名
+            currentFfmpeg = started;
             StringBuilder err = new StringBuilder();
             Thread errDrain = new Thread(() -> {
-                try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getErrorStream(), StandardCharsets.UTF_8));){
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(started.getErrorStream(), StandardCharsets.UTF_8));){
                     String line;
                     while ((line = r.readLine()) != null && err.length() < 20000) {
                         err.append(line).append('\n');
@@ -235,7 +237,7 @@ public final class FfmpegCore {
                 }
             });
             errDrain.start();
-            try (InputStream in = p.getInputStream();){
+            try (InputStream in = started.getInputStream();){
                 // Drain the whole stdout stream so the pipe never fills and
                 // ffmpeg does not stall (the old single 8KB read + close
                 // could break the pipe if ffmpeg ever printed more).
@@ -243,23 +245,27 @@ public final class FfmpegCore {
                 while (in.read(sink) > 0) {
                 }
             }
-            boolean done = p.waitFor(900L, TimeUnit.SECONDS);
+            boolean done = started.waitFor(900L, TimeUnit.SECONDS);
             if (!done) {
-                p.destroyForcibly();
+                started.destroyForcibly();
+                if (currentFfmpeg == started) {
+                    currentFfmpeg = null;
+                }
                 return Map.of("ok", false, "error", "ffmpeg timed out (900s)");
             }
             errDrain.join(5000L);
-            if (currentFfmpeg == p) {
+            if (currentFfmpeg == started) {
                 currentFfmpeg = null;
             }
-            if (p.exitValue() != 0) {
+            if (started.exitValue() != 0) {
                 String tail = err.toString().trim();
                 return Map.of("ok", false, "error", tail.length() > 800 ? tail.substring(tail.length() - 800) : tail);
             }
             return Map.of("ok", true);
         }
         catch (Exception exc) {
-            if (currentFfmpeg != null) {
+            // 只清自己持有的进程句柄：无条件置 null 会误清另一线程刚启动的新 ffmpeg
+            if (p != null && currentFfmpeg == p) {
                 currentFfmpeg = null;
             }
             return Map.of("ok", false, "error", "ffmpeg launch failed: " + exc);

@@ -96,8 +96,25 @@ export interface MediaMeta {
   audio_sources?: Record<string, number>;
 }
 
+// 统一解析响应体；非 2xx（如 500 HTML 错误页）不抛"Unexpected token <"，
+// 而是降级为 { ok:false, error:'HTTP 500' }，让各调用方的 !ok 分支能展示可读信息
 async function j<T>(resp: Response): Promise<T> {
-  return (await resp.json()) as T;
+  let body: unknown = null;
+  try {
+    body = await resp.json();
+  } catch {
+    body = null;
+  }
+  if (resp.ok && body !== null) {
+    return body as T;
+  }
+  const obj = (body && typeof body === "object") ? (body as Record<string, unknown>) : {};
+  const detail = obj.detail ?? obj.error ?? obj.message;
+  const merged: Record<string, unknown> = { ...obj, ok: false };
+  if (!merged.error) {
+    merged.error = typeof detail === "string" && detail ? detail : "HTTP " + resp.status;
+  }
+  return merged as T;
 }
 
 export const api = {
