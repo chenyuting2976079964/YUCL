@@ -174,14 +174,23 @@ extends Application {
         javafx.scene.layout.Region tbSpacer = new javafx.scene.layout.Region();
         javafx.scene.layout.HBox.setHgrow(tbSpacer, javafx.scene.layout.Priority.ALWAYS);
         // 窗口控制按钮：纯矢量绘制（不依赖字体字形），深色圆角底 + 亮色图形
-        javafx.scene.layout.StackPane bMin = AppShell.winBtn(36.0, "#1a2138");
-        javafx.scene.layout.Region mnBar = new javafx.scene.layout.Region();
-        mnBar.setPrefSize(12.0, 2.0);
-        mnBar.setStyle("-fx-background-color: #dfe4f5;");
-        bMin.getChildren().add(mnBar);
-        bMin.setOnMouseEntered(e -> bMin.setStyle("-fx-background-color: #2a3350; -fx-background-radius: 6; -fx-cursor: hand;"));
-        bMin.setOnMouseExited(e -> bMin.setStyle("-fx-background-color: #1a2138; -fx-background-radius: 6; -fx-cursor: hand;"));
-        bMin.setOnMouseClicked(e -> s.setIconified(true));
+        // 最左按钮位：「设置」齿轮（原 UI 头部按钮挪到此，取代原最小化按钮）——点击经 WebView JS 钩子打开设置面板
+        javafx.scene.layout.StackPane bSet = AppShell.winBtn(36.0, "#1a2138");
+        bSet.getChildren().add(AppShell.gearIcon());
+        javafx.scene.control.Tooltip.install(bSet, new javafx.scene.control.Tooltip("\u8bbe\u7f6e"));
+        bSet.setOnMouseEntered(e -> bSet.setStyle("-fx-background-color: #2a3350; -fx-background-radius: 6; -fx-cursor: hand;"));
+        bSet.setOnMouseExited(e -> bSet.setStyle("-fx-background-color: #1a2138; -fx-background-radius: 6; -fx-cursor: hand;"));
+        bSet.setOnMouseClicked(e -> {
+            final javafx.scene.web.WebEngine eng = view.getEngine();
+            javafx.application.Platform.runLater(() -> {
+                try {
+                    // 本 OpenJFX 构建的 WebEngine 没有 eval(String)，JS 注入走 executeScript
+                    eng.executeScript("window.__yuclOpenSettings && window.__yuclOpenSettings();");
+                } catch (Exception e2) {
+                    log.warn("open settings from title bar failed: {}", e2.toString());
+                }
+            });
+        });
         javafx.scene.layout.StackPane bMax = AppShell.winBtn(36.0, "#1a2138");
         javafx.scene.layout.Region mxBox = new javafx.scene.layout.Region();
         mxBox.setPrefSize(10.0, 10.0);
@@ -189,7 +198,7 @@ extends Application {
         bMax.getChildren().add(mxBox);
         bMax.setOnMouseEntered(e -> bMax.setStyle("-fx-background-color: #2a3350; -fx-background-radius: 6; -fx-cursor: hand;"));
         bMax.setOnMouseExited(e -> bMax.setStyle("-fx-background-color: #1a2138; -fx-background-radius: 6; -fx-cursor: hand;"));
-        bMax.setOnMouseClicked(e -> s.setMaximized(!s.isMaximized()));
+        bMax.setOnMouseClicked(e -> AppShell.this.toggleMaximizeWindow());
         javafx.scene.layout.StackPane bClose = AppShell.winBtn(36.0, "#1a2138");
         javafx.scene.shape.Line cl1 = new javafx.scene.shape.Line(-5.5, -5.5, 5.5, 5.5);
         javafx.scene.shape.Line cl2 = new javafx.scene.shape.Line(-5.5, 5.5, 5.5, -5.5);
@@ -201,7 +210,7 @@ extends Application {
         bClose.setOnMouseEntered(e -> bClose.setStyle("-fx-background-color: #c0392b; -fx-background-radius: 6; -fx-cursor: hand;"));
         bClose.setOnMouseExited(e -> bClose.setStyle("-fx-background-color: #1a2138; -fx-background-radius: 6; -fx-cursor: hand;"));
         bClose.setOnMouseClicked(e -> this.doExit());
-        titleBar.getChildren().addAll(tbIcon, tbTitle, tbSpacer, bMin, bMax, bClose);
+        titleBar.getChildren().addAll(tbIcon, tbTitle, tbSpacer, bSet, bMax, bClose);
         double[] drag = new double[2];
         titleBar.setOnMousePressed(ev -> {
             drag[0] = ev.getScreenX() - s.getX();
@@ -221,28 +230,30 @@ extends Application {
         outer.setBackground(new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
                 javafx.scene.paint.Color.web("#0b0d14"), null, null)));
         s.setScene(new Scene(outer, geo[0] / this.outScale, geo[1] / this.outScale));
-        // 缩放后可观测性：布局真正重排完成时（root/view 尺寸属性更新）才记录，
-        // 避免在 outer 属性回调里读到上一帧的旧尺寸（1s 节流，避免拖拽刷屏）
-        final long[] lastSizeLog = { 0L };
-        java.util.function.Consumer<Object> sizeLog = o -> {
-            long now = System.currentTimeMillis();
-            if (now - lastSizeLog[0] > 1000L) {
-                lastSizeLog[0] = now;
-                trace("layout settled: outer " + outer.getWidth() + "x" + outer.getHeight()
-                        + " root " + root.getWidth() + "x" + root.getHeight()
-                        + " webview " + view.getWidth() + "x" + view.getHeight());
+        // 缩放后可观测性：布局真正重排完成（250ms 后、当帧脉冲结束）才记录最终尺寸，
+        // 直接读属性变更瞬间会抓到同一帧内的中间值（1s 节流 + 去重，避免拖拽刷屏）
+        final java.util.concurrent.atomic.AtomicBoolean settlePending = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.function.Consumer<Object> queueSettleLog = o -> {
+            if (settlePending.compareAndSet(false, true)) {
+                new javafx.animation.Timeline(new javafx.animation.KeyFrame(
+                        javafx.util.Duration.millis(250), ev -> {
+                            settlePending.set(false);
+                            trace("layout settled: outer " + outer.getWidth() + "x" + outer.getHeight()
+                                    + " root " + root.getWidth() + "x" + root.getHeight()
+                                    + " webview " + view.getWidth() + "x" + view.getHeight());
+                        })).play();
             }
         };
-        root.widthProperty().addListener((o, a, b) -> sizeLog.accept(b));
-        root.heightProperty().addListener((o, a, b) -> sizeLog.accept(b));
-        view.widthProperty().addListener((o, a, b) -> sizeLog.accept(b));
-        view.heightProperty().addListener((o, a, b) -> sizeLog.accept(b));
+        root.widthProperty().addListener((o, a, b) -> queueSettleLog.accept(b));
+        root.heightProperty().addListener((o, a, b) -> queueSettleLog.accept(b));
+        view.widthProperty().addListener((o, a, b) -> queueSettleLog.accept(b));
+        view.heightProperty().addListener((o, a, b) -> queueSettleLog.accept(b));
         // 缩放由 Windows 框架接管（NativeWindow 的 WM_NCCALCSIZE/WM_NCHITTEST 子类化），
         // 全程跟手、可超长拖拽；JavaFX 侧不需要任何缩放句柄节点。
-        // 双击标题栏 = 最大化/还原
+        // 双击标题栏 = 最大化/还原（OS 标准行为）
         titleBar.setOnMouseReleased(e -> {
             if (e.getClickCount() == 2 && (e.getTarget() == titleBar || e.getTarget() instanceof javafx.scene.layout.Region)) {
-                s.setMaximized(!s.isMaximized());
+                AppShell.this.toggleMaximizeWindow();
             }
         });
         s.setOnCloseRequest(ev -> {
@@ -250,7 +261,12 @@ extends Application {
         });
         AppShell.windowResetHook = () -> {
             javafx.application.Platform.runLater(() -> {
-                s.setMaximized(false);
+                // 原生（ShowWindow）最大化必须走 OS 还原；JavaFX setMaximized(false) 还原不了它
+                if (AppShell.this.nativeWindow != null) {
+                    AppShell.this.nativeWindow.restore();
+                } else {
+                    s.setMaximized(false);
+                }
                 s.setWidth(1220.0 / this.outScale);
                 s.setHeight(780.0 / this.outScale);
             });
@@ -286,7 +302,7 @@ extends Application {
             } catch (InterruptedException ignored) { }
             javafx.application.Platform.runLater(() -> {
                 try {
-                    trace("layout bMin[localX=" + (int) bMin.getLayoutX() + ",w=" + bMin.getWidth() + "] bMax[localX=" + (int) bMax.getLayoutX() + "] bClose[localX=" + (int) bClose.getLayoutX() + ",w=" + bClose.getWidth() + "]"
+                    trace("layout bSet[localX=" + (int) bSet.getLayoutX() + ",w=" + bSet.getWidth() + "] bMax[localX=" + (int) bMax.getLayoutX() + "] bClose[localX=" + (int) bClose.getLayoutX() + ",w=" + bClose.getWidth() + "]"
                             + " sceneW=" + s.getScene().getWidth()
                             + " rootW=" + (int) root.getWidth() + " titleBarW=" + (int) titleBar.getWidth()
                             + " tbH=" + (int) titleBar.getHeight());
@@ -385,6 +401,39 @@ extends Application {
         }
         Platform.exit();
         System.exit(0);
+    }
+
+    /** 标准最大化/还原：优先走 NativeWindow 的 OS 行为（ShowWindow SW_MAXIMIZE/SW_RESTORE，
+     *  和其它 Windows 应用一致：最大化 = 显示器工作区，再点还原回原位置/大小）；JNA 不可用时降级 JavaFX。 */
+    private void toggleMaximizeWindow() {
+        if (this.nativeWindow != null) {
+            this.nativeWindow.toggleMaximize();
+        }
+        else {
+            this.stage.setMaximized(!this.stage.isMaximized());
+        }
+    }
+
+    /** 设置齿轮矢量图标（Canvas 绘制：8 齿 + 圆环 + 中心点；不用字体字形，JVM 默认字体缺 ⚙ 会空白。
+     *  注：本 OpenJFX 构建没有 shape.Group / Node.setPivot，用 Canvas 2D 等价实现） */
+    private static javafx.scene.Node gearIcon() {
+        javafx.scene.canvas.Canvas cv = new javafx.scene.canvas.Canvas(24.0, 24.0);
+        javafx.scene.canvas.GraphicsContext g = cv.getGraphicsContext2D();
+        g.translate(12.0, 12.0);
+        javafx.scene.paint.Color c = javafx.scene.paint.Color.web("#dfe4f5");
+        g.setFill(c);
+        for (int i = 0; i < 8; i++) {
+            g.save();
+            g.rotate((double)i * 45.0);
+            g.fillRoundRect(-1.5, -9.0, 3.0, 4.2, 1.0, 1.0);
+            g.restore();
+        }
+        g.setStroke(c);
+        g.setLineWidth(1.7);
+        g.strokeOval(-5.2, -5.2, 10.4, 10.4);
+        g.setFill(c);
+        g.fillOval(-1.9, -1.9, 3.8, 3.8);
+        return cv;
     }
 
     private boolean healthzUp() {

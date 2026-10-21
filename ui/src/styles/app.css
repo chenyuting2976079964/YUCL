@@ -59,10 +59,6 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 .badge.ok .dot{background:var(--ok);box-shadow:0 0 0 0 rgba(61,220,151,.6);animation:pulse 1.8s infinite}
 .badge.no{color:#ffe6c4;border-color:rgba(255,180,84,.4);background:rgba(255,180,84,.09)}
 .badge.no .dot{background:var(--warn)}
-.setbtn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;margin-left:10px;
-  border:1px solid var(--border);background:var(--panel);color:var(--fg2);font-size:11.5px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
-.setbtn:hover{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
-.setbtn svg{width:14px;height:14px}
 /* 窗口密度：紧凑模式收紧卡片间距与内边距 */
 html[data-density="compact"] .pane{padding:12px 14px;margin-bottom:10px}
 html[data-density="compact"] .col{padding:14px 16px}

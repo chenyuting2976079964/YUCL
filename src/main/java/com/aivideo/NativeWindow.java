@@ -210,6 +210,35 @@ public final class NativeWindow implements AutoCloseable {
         }
     }
 
+    /** OS 标准最大化切换：最大化 = 显示器工作区（和其它 Windows 应用一致），再点还原到之前位置/大小。
+     *  走 ShowWindow 让 Windows 框架处理，Glass 经 WM_SIZE 同步场景；IsZoomed 状态与 NCHITTEST 边区跳过逻辑一致。 */
+    public synchronized void toggleMaximize() {
+        if (hwnd == null || hwnd.getPointer().equals(Pointer.NULL)) {
+            return;
+        }
+        // WinUser.h: SW_RESTORE=1, SW_MAXIMIZE=3
+        boolean zoomed = User32Ex.INSTANCE.IsZoomed(hwnd);
+        User32Ex.INSTANCE.ShowWindow(hwnd, zoomed ? 1 : 3);
+    }
+
+    /** 若当前最大化则还原（幂等；windowResetHook 用） */
+    public synchronized void restore() {
+        if (hwnd == null || hwnd.getPointer().equals(Pointer.NULL)) {
+            return;
+        }
+        if (User32Ex.INSTANCE.IsZoomed(hwnd)) {
+            User32Ex.INSTANCE.ShowWindow(hwnd, 1); // SW_RESTORE
+        }
+    }
+
+    /** 是否处于 OS 最大化状态 */
+    public boolean isMaximized() {
+        if (hwnd == null || hwnd.getPointer().equals(Pointer.NULL)) {
+            return false;
+        }
+        return User32Ex.INSTANCE.IsZoomed(hwnd);
+    }
+
     private static void logDebug(String msg) {
         try {
             java.nio.file.Path d = com.aivideo.DataDirs.dataDir();

@@ -8,10 +8,6 @@
         </div>
         <div class="title">YUCL</div>
         <span class="badge"><span class="dot"></span>{{ provBadge }}</span>
-        <button class="setbtn" type="button" :title="t('settings')" @click="showSettings = true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
-          <span>{{ t("settings") }}</span>
-        </button>
       </div>
       <div class="sub">{{ t("app_sub") }}</div>
       <div v-if="store.backendWarn" class="err" style="margin-top:8px">{{ store.backendWarn }}</div>
@@ -61,6 +57,11 @@ const voiceCard = ref<InstanceType<typeof VoiceSourceCard> | null>(null);
 const bgmCard = ref<InstanceType<typeof BgmExportCard> | null>(null);
 const charbgFormRef = ref<InstanceType<typeof CharBgForm> | null>(null);
 const showSettings = ref(false);
+
+// 全局钩子：原生标题栏（JavaFX）的「设置」齿轮按钮经 WebEngine.eval 调这里打开设置面板
+(window as unknown as { __yuclOpenSettings?: () => void }).__yuclOpenSettings = () => {
+  showSettings.value = true;
+};
 
 // 供 CharBgForm 提交时读取旁白/BGM 负载
 provide("yuclCards", {
