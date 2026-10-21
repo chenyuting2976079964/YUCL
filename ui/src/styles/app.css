@@ -23,7 +23,7 @@
   --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
 }
 *{box-sizing:border-box}
-html,body{height:100%}
+html,body{height:100%;overflow:hidden}
 html{color-scheme:dark}
 body{margin:0;color:var(--fg);background:var(--bg);
   font:13.5px/1.55 "Segoe UI Variable","Segoe UI",system-ui,"Microsoft YaHei","PingFang SC",sans-serif;
@@ -48,7 +48,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 /* ---- 布局 ---- */
 .wrap{display:grid;grid-template-columns:472px 1fr;height:100vh}
 .col{overflow:auto;padding:24px 26px}
-.col.left{background:var(--bg2);border-right:1px solid var(--border)}
+.col.left{background:var(--bg2);border-right:1px solid rgba(0,0,0,.45)}
 
 /* 可折叠卡片（旁白/BGM/剧本 收纳，主流程不被埋没） */
 .cb-details{margin:14px 0;border:1px solid var(--border);border-radius:12px;
