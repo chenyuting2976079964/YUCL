@@ -163,7 +163,7 @@ extends Application {
         StackPane root = new StackPane();
         root.getChildren().addAll(view, splashRoot);
         // ── 自定义深色标题栏（去装饰窗口 + 原生浅标题栏不搭）──
-        javafx.scene.layout.HBox titleBar = new javafx.scene.layout.HBox(8.0);
+        javafx.scene.layout.HBox titleBar = new javafx.scene.layout.HBox(10.0);
         titleBar.setPrefHeight(40.0);
         titleBar.setMinHeight(40.0);
         titleBar.setMaxHeight(40.0);
@@ -171,18 +171,21 @@ extends Application {
         titleBar.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         titleBar.setStyle("-fx-background-color: #0d1120; -fx-border-color: #1c2440; -fx-border-width: 0 0 1 0;");
         Label tbIcon = new Label("YUCL");
-        tbIcon.setStyle("-fx-font-size: 13; -fx-font-weight: 700; -fx-text-fill: #8b5cf6;");
+        tbIcon.setStyle("-fx-font-size: 13; -fx-font-weight: 800; -fx-text-fill: linear-gradient(to right, #4f7cff, #8b5cf6, #c084fc); -fx-letter-spacing: 1.5;");
         Label tbTitle = new Label("AI \u77ed\u89c6\u9891\u5de5\u4f5c\u5ba4");
         tbTitle.setStyle("-fx-font-size: 12; -fx-text-fill: #7c86a5;");
         javafx.scene.layout.Region tbSpacer = new javafx.scene.layout.Region();
         javafx.scene.layout.HBox.setHgrow(tbSpacer, javafx.scene.layout.Priority.ALWAYS);
-        // 窗口控制按钮：纯矢量绘制（不依赖字体字形），深色圆角底 + 亮色图形
-        // 最左按钮位：「设置」齿轮（原 UI 头部按钮挪到此，取代原最小化按钮）——点击经 WebView JS 钩子打开设置面板
-        javafx.scene.layout.StackPane bSet = AppShell.winBtn(36.0, "#1a2138");
+        // ── 窗口控制按钮（Win11 Fluent 深色：透明底 + 精致矢量图标 + 悬浮细高亮 + 关闭红）──
+        // 最左按钮位：「设置」滑块图标（原 UI 头部按钮挪到此）——点击经 WebView JS 钩子打开设置面板
+        final String BTN_BASE = "-fx-background-radius:8;-fx-cursor:hand;";
+        final String BTN_NORMAL = BTN_BASE + "-fx-background-color:transparent;";
+        final String BTN_HOVER = BTN_BASE + "-fx-background-color:rgba(255,255,255,.09);";
+        final String BTN_PRESS = BTN_BASE + "-fx-background-color:rgba(255,255,255,.16);";
+        javafx.scene.layout.StackPane bSet = AppShell.winBtn(34.0, "transparent");
         bSet.getChildren().add(AppShell.gearIcon());
-        javafx.scene.control.Tooltip.install(bSet, new javafx.scene.control.Tooltip("\u8bbe\u7f6e"));
-        bSet.setOnMouseEntered(e -> bSet.setStyle("-fx-background-color: #2a3350; -fx-background-radius: 6; -fx-cursor: hand;"));
-        bSet.setOnMouseExited(e -> bSet.setStyle("-fx-background-color: #1a2138; -fx-background-radius: 6; -fx-cursor: hand;"));
+        AppShell.wireHover(bSet, BTN_NORMAL, BTN_HOVER, BTN_PRESS);
+        javafx.scene.control.Tooltip.install(bSet, new javafx.scene.control.Tooltip("设置"));
         bSet.setOnMouseClicked(e -> {
             final javafx.scene.web.WebEngine eng = view.getEngine();
             javafx.application.Platform.runLater(() -> {
@@ -194,24 +197,47 @@ extends Application {
                 }
             });
         });
-        javafx.scene.layout.StackPane bMax = AppShell.winBtn(36.0, "#1a2138");
-        javafx.scene.layout.Region mxBox = new javafx.scene.layout.Region();
-        mxBox.setPrefSize(10.0, 10.0);
-        mxBox.setStyle("-fx-border-color: #dfe4f5; -fx-border-width: 1.5; -fx-background-color: transparent;");
-        bMax.getChildren().add(mxBox);
-        bMax.setOnMouseEntered(e -> bMax.setStyle("-fx-background-color: #2a3350; -fx-background-radius: 6; -fx-cursor: hand;"));
-        bMax.setOnMouseExited(e -> bMax.setStyle("-fx-background-color: #1a2138; -fx-background-radius: 6; -fx-cursor: hand;"));
+        javafx.scene.layout.StackPane bMax = AppShell.winBtn(34.0, "transparent");
+        final javafx.scene.canvas.Canvas mxIconMax = AppShell.maxIcon();
+        final javafx.scene.canvas.Canvas mxIconRest = AppShell.restoreIcon();
+        mxIconRest.setVisible(false);
+        bMax.getChildren().addAll(mxIconMax, mxIconRest);
+        AppShell.wireHover(bMax, BTN_NORMAL, BTN_HOVER, BTN_PRESS);
+        javafx.scene.control.Tooltip.install(bMax, new javafx.scene.control.Tooltip("最大化 / 还原"));
         bMax.setOnMouseClicked(e -> AppShell.this.toggleMaximizeWindow());
-        javafx.scene.layout.StackPane bClose = AppShell.winBtn(36.0, "#1a2138");
-        javafx.scene.shape.Line cl1 = new javafx.scene.shape.Line(-5.5, -5.5, 5.5, 5.5);
-        javafx.scene.shape.Line cl2 = new javafx.scene.shape.Line(-5.5, 5.5, 5.5, -5.5);
-        cl1.setStroke(javafx.scene.paint.Color.web("#dfe4f5"));
-        cl2.setStroke(javafx.scene.paint.Color.web("#dfe4f5"));
-        cl1.setStrokeWidth(1.8);
-        cl2.setStrokeWidth(1.8);
+        // 图标随窗口状态切换：原生最大化不触发 JavaFX maximized 属性，
+        // 故同时用宽度阈值判定（CSS px，>98% 屏宽视为最大化）
+        final java.lang.Runnable syncMaxIcon = () -> {
+            boolean maxed = s.isMaximized()
+                    || s.getWidth() > 0.98 * javafx.stage.Screen.getPrimary().getBounds().getWidth();
+            Platform.runLater(() -> {
+                mxIconMax.setVisible(!maxed);
+                mxIconRest.setVisible(maxed);
+            });
+        };
+        syncMaxIcon.run();
+        s.widthProperty().addListener((o, a, n) -> syncMaxIcon.run());
+        javafx.scene.layout.StackPane bClose = AppShell.winBtn(34.0, "transparent");
+        bClose.setStyle(BTN_NORMAL);
+        javafx.scene.shape.Line cl1 = new javafx.scene.shape.Line(-5.0, -5.0, 5.0, 5.0);
+        javafx.scene.shape.Line cl2 = new javafx.scene.shape.Line(-5.0, 5.0, 5.0, -5.0);
+        javafx.scene.paint.Color xIdle = javafx.scene.paint.Color.web("#c2c8d6");
+        cl1.setStroke(xIdle); cl2.setStroke(xIdle);
+        cl1.setStrokeWidth(1.6); cl2.setStrokeWidth(1.6);
+        cl1.setStrokeLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
+        cl2.setStrokeLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
         bClose.getChildren().addAll(cl1, cl2);
-        bClose.setOnMouseEntered(e -> bClose.setStyle("-fx-background-color: #c0392b; -fx-background-radius: 6; -fx-cursor: hand;"));
-        bClose.setOnMouseExited(e -> bClose.setStyle("-fx-background-color: #1a2138; -fx-background-radius: 6; -fx-cursor: hand;"));
+        javafx.scene.control.Tooltip.install(bClose, new javafx.scene.control.Tooltip("关闭"));
+        bClose.setOnMouseEntered(e -> {
+            bClose.setStyle(BTN_BASE + "-fx-background-color:#e81123;");
+            cl1.setStroke(javafx.scene.paint.Color.WHITE); cl2.setStroke(javafx.scene.paint.Color.WHITE);
+        });
+        bClose.setOnMousePressed(e -> bClose.setStyle(BTN_BASE + "-fx-background-color:#c50e1f;"));
+        bClose.setOnMouseReleased(e -> bClose.setStyle(BTN_BASE + "-fx-background-color:#e81123;"));
+        bClose.setOnMouseExited(e -> {
+            bClose.setStyle(BTN_NORMAL);
+            cl1.setStroke(xIdle); cl2.setStroke(xIdle);
+        });
         bClose.setOnMouseClicked(e -> this.doExit());
         titleBar.getChildren().addAll(tbIcon, tbTitle, tbSpacer, bSet, bMax, bClose);
         double[] drag = new double[2];
@@ -447,26 +473,66 @@ extends Application {
         }
     }
 
-    /** 设置齿轮矢量图标（Canvas 绘制：8 齿 + 圆环 + 中心点；不用字体字形，JVM 默认字体缺 ⚙ 会空白。
-     *  注：本 OpenJFX 构建没有 shape.Group / Node.setPivot，用 Canvas 2D 等价实现） */
-    private static javafx.scene.Node gearIcon() {
-        javafx.scene.canvas.Canvas cv = new javafx.scene.canvas.Canvas(24.0, 24.0);
+    /** 2x 超采样 Canvas 图标助手：高分辨率绘制后缩回目标尺寸，边缘平滑（不依赖字体字形，
+     *  JVM 默认字体缺字形会空白）。 */
+    private static javafx.scene.canvas.Canvas iconCanvas(double size,
+            java.util.function.Consumer<javafx.scene.canvas.GraphicsContext> draw) {
+        javafx.scene.canvas.Canvas cv = new javafx.scene.canvas.Canvas(size * 2.0, size * 2.0);
         javafx.scene.canvas.GraphicsContext g = cv.getGraphicsContext2D();
-        g.translate(12.0, 12.0);
-        javafx.scene.paint.Color c = javafx.scene.paint.Color.web("#dfe4f5");
-        g.setFill(c);
-        for (int i = 0; i < 8; i++) {
-            g.save();
-            g.rotate((double)i * 45.0);
-            g.fillRoundRect(-1.5, -9.0, 3.0, 4.2, 1.0, 1.0);
-            g.restore();
-        }
-        g.setStroke(c);
-        g.setLineWidth(1.7);
-        g.strokeOval(-5.2, -5.2, 10.4, 10.4);
-        g.setFill(c);
-        g.fillOval(-1.9, -1.9, 3.8, 3.8);
+        g.scale(2.0, 2.0);
+        g.setLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
+        g.setLineJoin(javafx.scene.shape.StrokeLineJoin.ROUND);
+        draw.accept(g);
+        cv.setScaleX(0.5);
+        cv.setScaleY(0.5);
         return cv;
+    }
+
+    /** 设置图标：齿轮（粗环虚线齿 + 中心孔，Fluent/Feather 风格，24x24 视觉重量与方框/X 平衡） */
+    private static javafx.scene.Node gearIcon() {
+        javafx.scene.paint.Color c = javafx.scene.paint.Color.web("#c2c8d6");
+        return iconCanvas(24.0, g -> {
+            g.setStroke(c);
+            // 齿带：8 段粗弧（齿 30°/缝 15°），r=6
+            g.setLineWidth(3.4);
+            g.setLineCap(javafx.scene.shape.StrokeLineCap.BUTT);
+            for (int i = 0; i < 8; i++) {
+                g.strokeArc(6.0, 6.0, 12.0, 12.0, -90.0 + i * 45.0 - 15.0, 30.0,
+                        javafx.scene.shape.ArcType.OPEN);
+            }
+            // 中心孔
+            g.setLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
+            g.setLineWidth(1.6);
+            g.strokeOval(12.0 - 2.4, 12.0 - 2.4, 4.8, 4.8);
+        });
+    }
+
+    /** 最大化图标：圆角方框（24x24） */
+    private static javafx.scene.canvas.Canvas maxIcon() {
+        return iconCanvas(24.0, g -> {
+            g.setStroke(javafx.scene.paint.Color.web("#c2c8d6"));
+            g.setLineWidth(1.6);
+            g.strokeRoundRect(5.6, 5.6, 12.8, 12.8, 3.0, 3.0);
+        });
+    }
+
+    /** 还原图标：双叠方框（24x24） */
+    private static javafx.scene.canvas.Canvas restoreIcon() {
+        return iconCanvas(24.0, g -> {
+            g.setLineWidth(1.6);
+            g.setStroke(javafx.scene.paint.Color.web("#c2c8d6").deriveColor(1.0, 1.0, 1.0, 0.55));
+            g.strokeRoundRect(9.2, 9.2, 9.6, 9.6, 2.2, 2.2);
+            g.setStroke(javafx.scene.paint.Color.web("#c2c8d6"));
+            g.strokeRoundRect(5.4, 5.4, 11.4, 11.4, 2.6, 2.6);
+        });
+    }
+
+    /** 统一的悬浮/按压反馈接线（设置/最大化按钮；关闭按钮有专属红色态，单独处理） */
+    private static void wireHover(javafx.scene.Node b, String normal, String hover, String press) {
+        b.setOnMouseEntered(e -> b.setStyle(hover));
+        b.setOnMouseExited(e -> b.setStyle(normal));
+        b.setOnMousePressed(e -> b.setStyle(press));
+        b.setOnMouseReleased(e -> b.setStyle(hover));
     }
 
     private boolean healthzUp() {
