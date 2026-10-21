@@ -329,7 +329,34 @@ extends Application {
         });
         probeThread.setDaemon(true);
         probeThread.start();
-        engine.setOnError(e -> log.error("\u9875\u9762 JS \u9519\u8bef: {}", (Object)e));
+        // 第二张快照：表单界面加载完成（~9s）后捕获真实 WebEngine 渲染，诊断 UI 层残留颜色
+        Thread formSnap = new Thread(() -> {
+            try {
+                Thread.sleep(9000L);
+            } catch (InterruptedException ignored) { }
+            javafx.application.Platform.runLater(() -> {
+                try {
+                    javafx.scene.image.WritableImage wi = s.getScene().getRoot().snapshot(null, null);
+                    int sw = (int) wi.getWidth(), sh = (int) wi.getHeight();
+                    java.awt.image.BufferedImage bi = new java.awt.image.BufferedImage(sw, sh, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                    javafx.scene.image.PixelReader pr = wi.getPixelReader();
+                    for (int py = 0; py < sh; py++) {
+                        for (int px = 0; px < sw; px++) {
+                            bi.setRGB(px, py, pr.getArgb(px, py));
+                        }
+                    }
+                    java.nio.file.Path snapDir = com.aivideo.DataDirs.dataDir();
+                    java.nio.file.Files.createDirectories(snapDir);
+                    javax.imageio.ImageIO.write(bi, "png", snapDir.resolve("scene-snapshot-form.png").toFile());
+                    trace("form scene snapshot saved " + sw + "x" + sh);
+                } catch (Exception ex) {
+                    trace("form snapshot failed: " + ex);
+                }
+            });
+        });
+        formSnap.setDaemon(true);
+        formSnap.start();
+        engine.setOnError(e -> log.error("页面 JS 错误: {}", (Object)e));
         engine.getLoadWorker();
         final long t0 = System.currentTimeMillis();
         Thread boot = new Thread(() -> {
