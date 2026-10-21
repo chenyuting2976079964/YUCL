@@ -16,11 +16,18 @@
       <div class="sub">{{ t("app_sub") }}</div>
       <div v-if="store.backendWarn" class="err" style="margin-top:8px">{{ store.backendWarn }}</div>
 
-      <VoiceSourceCard ref="voiceCard" />
-      <BgmExportCard ref="bgmCard" />
-
-      <ScriptPanel :script-to-form="scriptToForm" @applied="onScriptApplied" />
+      <!-- 基本流程（主流程）：人物图 → 场景图 → 内容描述 → 生成视频 -->
       <CharBgForm ref="charbgFormRef" />
+
+      <details class="cb-details" open>
+        <summary>旁白与 BGM（可选）</summary>
+        <VoiceSourceCard ref="voiceCard" />
+        <BgmExportCard ref="bgmCard" />
+      </details>
+      <details class="cb-details">
+        <summary>一键剧本（LLM 写故事 + 台词）</summary>
+        <ScriptPanel :script-to-form="scriptToForm" @applied="onScriptApplied" />
+      </details>
       <MaintenancePanel />
     </div>
 

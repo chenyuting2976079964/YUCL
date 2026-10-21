@@ -81,6 +81,7 @@ extends Application {
     private final String baseUrl;
     private final Runnable onShutdown;
     private Stage stage;
+    private NativeWindow nativeWindow;
     private double outScale = 1.0;
     public static volatile Runnable windowResetHook;
 
@@ -94,7 +95,7 @@ extends Application {
         this.outScale = Math.max(1.0, javafx.stage.Screen.getPrimary().getOutputScaleY());
         s.initStyle(javafx.stage.StageStyle.UNDECORATED);
         s.setTitle("YUCL \u00b7 AI \u77ed\u89c6\u9891\u5de5\u4f5c\u5ba4");
-                s.setMinWidth(960.0 / this.outScale);
+        s.setMinWidth(960.0 / this.outScale);
         s.setMinHeight(600.0 / this.outScale);
         Image icon = AppShell.loadIcon();
         if (icon != null) {
@@ -207,14 +208,8 @@ extends Application {
         javafx.scene.layout.VBox outer = new javafx.scene.layout.VBox();
         outer.getChildren().addAll(titleBar, root);
         s.setScene(new Scene(outer, geo[0] / this.outScale, geo[1] / this.outScale));
-        // ── 无边框窗口：手动边缘拖拽缩放（左/右/底 8px 透明条）──
-        javafx.scene.layout.Region rzL = AppShell.resizeHandle(s, "left", this.outScale);
-        javafx.scene.layout.Region rzR = AppShell.resizeHandle(s, "right", this.outScale);
-        javafx.scene.layout.Region rzB = AppShell.resizeHandle(s, "bottom", this.outScale);
-        StackPane.setAlignment(rzL, javafx.geometry.Pos.CENTER_LEFT);
-        StackPane.setAlignment(rzR, javafx.geometry.Pos.CENTER_RIGHT);
-        StackPane.setAlignment(rzB, javafx.geometry.Pos.BOTTOM_CENTER);
-        root.getChildren().addAll(rzL, rzR, rzB);
+        // 缩放由 Windows 框架接管（NativeWindow 的 WM_NCCALCSIZE/WM_NCHITTEST 子类化），
+        // 全程跟手、可超长拖拽；JavaFX 侧不需要任何缩放句柄节点。
         // 双击标题栏 = 最大化/还原
         titleBar.setOnMouseReleased(e -> {
             if (e.getClickCount() == 2 && (e.getTarget() == titleBar || e.getTarget() instanceof javafx.scene.layout.Region)) {
@@ -232,6 +227,30 @@ extends Application {
             });
         };
         s.show();
+        // 原生框架级缩放（JNA 子类化该窗口 HWND）：1.5s 后安装，HWND 已稳定
+        final double outScale = this.outScale;
+        new javafx.animation.Timeline(new javafx.animation.KeyFrame(
+                new javafx.util.Duration(1500),
+                e2 -> {
+                    try {
+                        // 原生框架级缩放：NCA 边框环 border px（物理）；
+                        // 标题栏带高度 = 标题栏逻辑 40px × outScale；
+                        // 右侧按钮区宽度 = 3×36 按钮 + 间距 + 右 padding（约 150 逻辑 px）
+                        int border = (int) (6 * outScale);
+                        int titleBarH = (int) (40 * outScale);
+                        int rightButtonsW = (int) (150 * outScale);
+                        NativeWindow nw = NativeWindow.install("YUCL \u00b7 AI \u77ed\u89c6\u9891\u5de5\u4f5c\u5ba4", border, titleBarH, rightButtonsW);
+                        if (nw != null) {
+                            AppShell.this.nativeWindow = nw;
+                            trace("native resize installed (border=" + border + "px titleBar=" + titleBarH + "px)");
+                        } else {
+                            trace("native resize install FAILED (FindWindow/JNA unavailable)");
+                        }
+                    } catch (Throwable t) {
+                        trace("native resize install error: " + t);
+                    }
+                }))
+                .play();
         Thread probeThread = new Thread(() -> {
             try {
                 Thread.sleep(1500L);
@@ -320,47 +339,6 @@ extends Application {
         b.setPrefSize(size, 40.0);
         b.setStyle("-fx-background-color: " + bg + "; -fx-cursor: hand; -fx-background-radius: 6;");
         return b;
-    }
-
-    private static javafx.scene.layout.Region resizeHandle(Stage s, String side, double scale) {
-        javafx.scene.layout.Region r = new javafx.scene.layout.Region();
-        r.setStyle("-fx-background-color: transparent;");
-        r.setCursor("bottom".equals(side) ? javafx.scene.Cursor.V_RESIZE : javafx.scene.Cursor.H_RESIZE);
-        if ("left".equals(side)) {
-            r.setPrefSize(8.0, 4000.0);
-        } else if ("right".equals(side)) {
-            r.setPrefSize(8.0, 4000.0);
-        } else {
-            r.setPrefSize(4000.0, 8.0);
-        }
-        final double[] st = new double[5]; // 按下时 screenX/Y + stageX/W/H（逻辑像素）
-        r.setOnMousePressed(e -> {
-            st[0] = e.getScreenX();
-            st[1] = e.getScreenY();
-            st[2] = s.getWidth();
-            st[3] = s.getHeight();
-            st[4] = s.getX();
-        });
-        r.setOnMouseDragged(e -> {
-            double dx = (e.getScreenX() - st[0]) / Math.max(scale, 1.0);
-            double dy = (e.getScreenY() - st[1]) / Math.max(scale, 1.0);
-            double minW = 960.0 / Math.max(scale, 1.0);
-            double minH = 600.0 / Math.max(scale, 1.0);
-            switch (side) {
-                case "left":
-                    double newW = Math.max(minW, st[2] - dx);
-                    s.setWidth(newW);
-                    s.setX(st[4] + (st[2] - newW));
-                    break;
-                case "right":
-                    s.setWidth(Math.max(minW, st[2] + dx));
-                    break;
-                case "bottom":
-                    s.setHeight(Math.max(minH, st[3] + dy));
-                    break;
-            }
-        });
-        return r;
     }
 
     private void doExit() {

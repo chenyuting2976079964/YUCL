@@ -141,8 +141,11 @@ function makeEntity(kind: "chars" | "bgs"): CbEntity {
   return { id: ++uid, name: (kind === "chars" ? "人物" : "背景") + n, src: "prompt", prompt: "", path: "", url: "", imgSrc: "", voice: "" };
 }
 
-const chars = ref<CbEntity[]>([makeEntity("chars"), makeEntity("chars")]);
-const bgs = ref<CbEntity[]>([makeEntity("bgs")]);
+const chars = ref<CbEntity[]>([]);
+const bgs = ref<CbEntity[]>([]);
+// 先建空数组再填充：makeEntity 引用 chars/bgs.value，必须在二者初始化之后调用（TDZ）
+chars.value = [makeEntity("chars"), makeEntity("chars")];
+bgs.value = [makeEntity("bgs")];
 const shots = ref<Shot[]>([{ char: chars.value[0].id, char2: chars.value[1].id, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" }]);
 
 const orientation = ref("16:9");

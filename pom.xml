@@ -34,6 +34,18 @@
       <version>${openjfx.version}</version>
       <classifier>win</classifier>
     </dependency>
+
+    <!-- Windows 原生无边框窗口缩放（WM_NCCALCSIZE 子类化：框架级 resize，跟手不丢） -->
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna</artifactId>
+      <version>5.14.0</version>
+    </dependency>
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna-platform</artifactId>
+      <version>5.14.0</version>
+    </dependency>
   </dependencies>
 
   <build>

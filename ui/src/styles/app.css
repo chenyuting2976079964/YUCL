@@ -34,6 +34,16 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 .col.left{background:linear-gradient(180deg,rgba(255,255,255,.018),transparent 240px),var(--bg2);
   border-right:1px solid var(--border)}
 
+/* 可折叠卡片（旁白/BGM/剧本 收纳，主流程不被埋没） */
+.cb-details{margin:14px 0;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb, var(--panel) 55%, transparent);overflow:hidden}
+.cb-details>summary{cursor:pointer;list-style:none;user-select:none;padding:10px 14px;font-size:13px;font-weight:700;color:var(--fg2);letter-spacing:.02em;
+  display:flex;align-items:center;gap:8px;background:color-mix(in srgb, var(--accent) 6%, transparent)}
+.cb-details>summary::-webkit-details-marker{display:none}
+.cb-details>summary::before{content:"▸";color:var(--dim);transition:transform .15s;font-size:11px}
+.cb-details[open]>summary::before{transform:rotate(90deg)}
+.cb-details>summary:hover{color:#fff}
+.cb-details>.body,.cb-details>div:not(summary){padding:4px 14px 12px}
+
 /* ---- 头部 ---- */
 .head{display:flex;align-items:center;gap:12px;margin-bottom:2px}
 .logo{width:42px;height:42px;border-radius:13px;background:var(--grad);display:grid;place-items:center;
