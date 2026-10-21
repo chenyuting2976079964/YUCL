@@ -6,6 +6,7 @@
       </summary>
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
         <button type="button" class="cb-addbtn" style="width:100%;padding:8px 14px" @click="backup">⬇ 下载备份（图片 / 语音 / BGM / 任务历史 / 模型配置）</button>
+        <button v-if="showBkFallback" type="button" class="cb-addbtn" style="width:100%;padding:8px 14px" @click="backupInBrowser">⇕ 用系统浏览器下载备份（窗口内保存失败时用）</button>
         <div class="upl">
           <input type="file" ref="rf" accept=".zip" @change="restore">
           <span>恢复备份（选择备份 zip，覆盖本机数据）</span>
@@ -32,6 +33,7 @@ const store = useAppStore();
 const status = ref("");
 const showLogs = ref(false);
 const logText = ref("");
+const showBkFallback = ref(false);
 const rf = ref<HTMLInputElement | null>(null);
 
 async function backup() {
@@ -47,9 +49,20 @@ async function backup() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    status.value = "✅ 备份已开始下载（" + (blob.size / 1048576).toFixed(1) + " MB，存到浏览器下载目录）";
+    // JavaFX 窗口（WebView2）默认没有下载目录，blob 下载可能静默失败 → 兜底走系统浏览器
+    status.value = "✅ 备份已开始下载（" + (blob.size / 1048576).toFixed(1) + " MB）· 若窗口内没有保存成功，点「用系统浏览器下载备份」";
+    showBkFallback.value = true;
   } catch (e: any) {
     status.value = "✕ 备份失败：" + (e?.message || e);
+  }
+}
+async function backupInBrowser() {
+  // 窗口内下载失败时的兜底：让后端在系统浏览器里打开 /backup（Chromium 浏览器可正常存盘）
+  try {
+    const j = await api.openInBrowser(location.origin + "/api/plugins/ai-video/backup");
+    status.value = j?.ok ? "✅ 已在系统浏览器开始下载备份（存到浏览器下载目录）" : "✕ 打开系统浏览器失败";
+  } catch {
+    status.value = "✕ 打开系统浏览器失败";
   }
 }
 async function restore(e: Event) {
@@ -71,6 +84,9 @@ async function restore(e: Event) {
     if (j.ok) {
       await store.loadMusic();
       await store.loadVoices();
+      // 恢复还包含 jobs.json / provider-config.json → 刷新近期作品与模型选项，避免界面继续显示旧数据
+      store.loadJobs();
+      store.loadOptions();
     }
   } catch (ex: any) {
     status.value = "✕ 恢复失败：" + (ex?.message || ex);
@@ -78,12 +94,18 @@ async function restore(e: Event) {
   input.value = "";
 }
 async function viewLogs() {
-  const j = await api.logs(200);
-  showLogs.value = true;
-  logText.value = j.ok
-    ? (j.lines && j.lines.length ? j.lines.join("\n") : "（app.log 还不存在——服务刚启动过才会写入）")
-    : "（读取失败：" + (j.detail || "未知错误") + "）";
-  status.value = j.ok && j.lines && j.lines.length ? "已载入最近 " + j.lines.length + " 行" : "";
+  try {
+    const j = await api.logs(200);
+    showLogs.value = true;
+    logText.value = j.ok
+      ? (j.lines && j.lines.length ? j.lines.join("\n") : "（app.log 还不存在——服务刚启动过才会写入）")
+      : "（读取失败：" + (j.detail || "未知错误") + "）";
+    status.value = j.ok && j.lines && j.lines.length ? "已载入最近 " + j.lines.length + " 行" : "";
+  } catch (ex: any) {
+    showLogs.value = true;
+    logText.value = "（读取失败：" + (ex?.message || ex) + "）";
+    status.value = "";
+  }
 }
 function copyLogs() {
   const txt = logText.value;

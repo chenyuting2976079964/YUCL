@@ -26,8 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileAttribute;
 import java.time.Duration;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -52,6 +51,7 @@ public final class ModelGateway {
     private static final int MIN_SECONDS = 4;
     private static final Map<String, String> RATIO = Map.of("vertical", "9:16", "9:16", "9:16", "landscape", "16:9", "16:9", "16:9", "square", "1:1", "1:1", "1:1", "21:9", "21:9", "4:3", "4:3", "3:4", "3:4");
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final java.util.concurrent.atomic.AtomicLong IMG_SEQ = new java.util.concurrent.atomic.AtomicLong();
 
     private ModelGateway() {
     }
@@ -120,7 +120,8 @@ public final class ModelGateway {
         for (String[] ep : eps) {
             String host = ModelGateway.splitHost(ep[0]);
             try {
-                HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(host + "/v1/models")).header("Authorization", "Bearer " + ep[1]).GET().build(), HttpResponse.BodyHandlers.ofString());
+                // 显式请求超时：连接建立后对端黑洞/慢响应不能无限挂起
+                HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(host + "/v1/models")).header("Authorization", "Bearer " + ep[1]).GET().timeout(Duration.ofSeconds(15L)).build(), HttpResponse.BodyHandlers.ofString());
                 if (r.statusCode() == 200) {
                     LinkedHashMap<String, Object> ok = new LinkedHashMap<String, Object>();
                     ok.put("ok", true);
@@ -208,7 +209,7 @@ public final class ModelGateway {
         for (String[] ep : eps) {
             String host = ModelGateway.splitHost(ep[0]);
             try {
-                HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(host + "/v1/models")).header("Authorization", "Bearer " + ep[1]).GET().build(), HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(host + "/v1/models")).header("Authorization", "Bearer " + ep[1]).GET().timeout(Duration.ofSeconds(15L)).build(), HttpResponse.BodyHandlers.ofString());
                 if (r.statusCode() == 200) {
                     out.put("ok", true);
                     out.put("base", host);
@@ -292,7 +293,8 @@ public final class ModelGateway {
                 byte[] bytes = dr.body();
                 String ct = String.valueOf(dr.headers().firstValue("Content-Type").orElse(""));
                 String ext = url.toLowerCase().contains(".png") || ct.startsWith("image/png") ? ".png" : ".jpg";
-                Path dest = baseDir.resolve("img_" + LocalTime.now().format(DateTimeFormatter.ofPattern("HHmmss")) + ext);
+                // 秒级时间戳会同秒生成互覆盖 → 毫秒 + 进程内序号保证唯一
+                Path dest = baseDir.resolve("img_" + System.currentTimeMillis() + "_" + IMG_SEQ.incrementAndGet() + ext);
                 Files.write(dest, bytes, new OpenOption[0]);
                 LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
                 out.put("ok", true);
@@ -424,7 +426,8 @@ public final class ModelGateway {
                         continue;
                     }
                     byte[] bytes = dr.body();
-                    Path dest = baseDir.resolve("agnes_" + LocalTime.now().format(DateTimeFormatter.ofPattern("HHmmss")) + ".mp4");
+                    // 秒级时间戳会同秒生成互覆盖 → 毫秒 + 进程内序号保证唯一
+                    Path dest = baseDir.resolve("agnes_" + System.currentTimeMillis() + "_" + IMG_SEQ.incrementAndGet() + ".mp4");
                     Files.write(dest, bytes, new OpenOption[0]);
                     LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
                     out.put("ok", true);

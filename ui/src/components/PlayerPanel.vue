@@ -66,6 +66,17 @@ function onSelect(jobId: string, m?: unknown) {
   meta.value = null;
   const streamUri = baseUrl + "/stream?job_id=" + encodeURIComponent(jobId);
   playUri(streamUri, m as MediaMeta | undefined);
+  // 拉完整 meta（字幕/模型/声源/规格）：卡片只带 duration_s，缺了会误显示「字幕: 无」
+  api.jobDetail(jobId).then(d => {
+    if (activeJobId.value !== jobId) return;
+    meta.value = {
+      duration_s: d.duration_s ?? ((m as MediaMeta | undefined)?.duration_s),
+      size: d.size,
+      subtitles: d.subtitles,
+      model: d.model,
+      audio_sources: d.audio_sources,
+    };
+  }).catch(() => {});
 }
 async function playUri(uri: string, m?: MediaMeta) {
   meta.value = m || null;

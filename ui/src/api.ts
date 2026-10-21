@@ -123,6 +123,8 @@ export const api = {
       .then(r => j<{ ok: boolean; job_id?: string; error?: string; detail?: string }>(r)),
 
   recent: () => fetch(API + "/recent").then(r => j<{ jobs: Job[] }>(r)),
+  jobDetail: (id: string) =>
+    fetch(API + "/jobs/" + encodeURIComponent(id)).then(r => j<Job & MediaMeta & { workdir?: string; params?: Record<string, unknown> }>(r)),
   cancelJob: (id: string) =>
     fetch(API + "/jobs/" + encodeURIComponent(id) + "/cancel", { method: "POST" }).then(r => j<{ ok: boolean; error?: string; detail?: string }>(r)),
   retryJob: (id: string) =>

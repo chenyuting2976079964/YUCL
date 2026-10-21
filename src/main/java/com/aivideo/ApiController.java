@@ -108,6 +108,8 @@ public class ApiController {
     private static final Set<String> IMG_EXTS = Set.of(".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif");
     private static final Set<String> MUSIC_EXTS = Set.of(".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg");
     private static final Semaphore RENDER_SEM = new Semaphore(1);
+    // 正在持有渲染信号量的 jobId（区分「渲染中」与「排队中」，取消时避免误杀前一个任务的 ffmpeg）
+    private static final java.util.concurrent.atomic.AtomicReference<String> RENDER_OWNER = new java.util.concurrent.atomic.AtomicReference<>();
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "aivideo-render");
         t.setDaemon(true);
@@ -134,6 +136,17 @@ public class ApiController {
         Path logRoot = Path.of(this.logFile, new String[0]).getRoot();
         if (logRoot != null && !Files.exists(logRoot, new LinkOption[0])) {
             this.logFile = DataDirs.dataDir().resolve("app.log").toString();
+        }
+        // 目录缺失时自动创建：safeChild/guardedChild 的 toRealPath() 容器校验、
+        // /restore 与预览都依赖真实路径存在；缺目录会让校验/恢复静默失败
+        for (String d : new String[] { this.voicesDir, this.imagesDir, this.musicDir, Paths.get(this.logFile).getParent() == null ? "" : Paths.get(this.logFile).getParent().toString() }) {
+            if (d == null || d.isEmpty()) {
+                continue;
+            }
+            try {
+                Files.createDirectories(Paths.get(d, new String[0]));
+            }
+            catch (Exception ignored) {}
         }
     }
 
@@ -176,7 +189,9 @@ public class ApiController {
         }
         out.put("providers", pout);
         out.put("active_provider_id", String.valueOf(st.get("active")));
-        out.put("agnesa_ok", Boolean.TRUE.equals(ModelGateway.providerStatus().get("ok")));
+        // 本地判断（不发网络）：内置凭据是否可用。实时在线状态走 /agnesa-status，
+        // 避免 /options 被 provider 探测阻塞（UI 启动重试循环会放大网络延迟）
+        out.put("agnesa_ok", !ModelGateway.providerEndpoints("agnesa").isEmpty());
         return out;
     }
 
@@ -699,6 +714,7 @@ public class ApiController {
         Map<String, Object> params = req.toParams();
         params.put("char_audio", charAudio);
         String string = bgmRaw = req.bgm == null ? "" : req.bgm.trim();
+        params.put("bgm_requested", bgmRaw); // 记录原始 BGM 名：解析失败/重试时可给出明确告警
         if (!bgmRaw.isEmpty() && !Files.exists(Paths.get(bgmRaw, new String[0]), new LinkOption[0])) {
             Path mp = this.safeChild(Paths.get(this.musicDir, new String[0]), bgmRaw, MUSIC_EXTS);
             params.put("bgm", mp != null ? mp.toString() : "");
@@ -770,12 +786,16 @@ public class ApiController {
                     return;
                 }
             }
+            RENDER_OWNER.set(jobId);
             List<Map<String, Object>> shots = ApiController.asMapList(params.get("shots"));
             List<Map<String, Object>> chars = ApiController.asMapList(params.get("characters"));
             List<Map<String, Object>> bgs = ApiController.asMapList(params.get("backgrounds"));
             String orientation = FfmpegCore.str(params.get("orientation")).isEmpty() ? "vertical" : FfmpegCore.str(params.get("orientation"));
             boolean subtitles = Boolean.TRUE.equals(params.get("subtitles"));
             String bgm = FfmpegCore.str(params.get("bgm"));
+            if (!bgm.isEmpty() && !Files.exists(Paths.get(bgm, new String[0]))) {
+                bgm = ""; // 入队后 BGM 被删/移动 → 降级为无 BGM（下方补告警），不让整个任务失败
+            }
             double bgmVol = ApiController.num(params.get("bgm_vol"), 0.18);
             boolean narration = !Boolean.FALSE.equals(params.get("narration"));
             Map<String, String> voices = ApiController.strMap(params.get("voices"));
@@ -808,7 +828,11 @@ public class ApiController {
                 @Override
                 public boolean cancelled() {
                     if (cancel.get()) {
-                        FfmpegCore.killCurrentFfmpeg();
+                        // 只杀本任务自己的 ffmpeg：排队任务此时尚未启动 ffmpeg，
+                        // 误杀会波及前一个正在渲染的任务（历史 bug）
+                        if (jobId.equals(RENDER_OWNER.get())) {
+                            FfmpegCore.killCurrentFfmpeg();
+                        }
                     }
                     return cancel.get();
                 }
@@ -833,12 +857,28 @@ public class ApiController {
                 fin.put("subtitles", result.get("subtitles"));
                 fin.put("elapsed_s", result.get("elapsed_s"));
                 fin.put("progress", ApiController.progressMap(total, total, "\u5b8c\u6210", 100));
+                // 声源 / 模型 随结果落盘，播放器点历史作品时可显示完整 meta
+                Object as = result.get("audio_sources");
+                if (as instanceof Map && !((Map<?, ?>)as).isEmpty()) {
+                    fin.put("audio_sources", as);
+                }
+                Object md = result.get("model");
+                if (md instanceof String ms && !ms.isBlank()) {
+                    fin.put("model", ms);
+                }
                 Object vw = result.get("voice_warnings");
                 if (vw instanceof List && !(l = (List)vw).isEmpty()) {
                     fin.put("voice_warnings", vw);
                 }
                 if ((ef = result.get("engine_fallbacks")) instanceof List && !(l2 = (List)ef).isEmpty()) {
                     fin.put("engine_fallbacks", ef);
+                }
+                // 用户选了 BGM 但文件在库里找不到 → 静默降级会困惑，补一条可见告警
+                String bgmReq = FfmpegCore.str(params.get("bgm_requested"));
+                if (!bgmReq.isEmpty() && bgm.isEmpty()) {
+                    List<String> warns = fin.get("voice_warnings") instanceof List ll ? new ArrayList<>(ll) : new ArrayList<>();
+                    warns.add("BGM\u300c" + bgmReq + "\u300d\u672a\u5728\u97f3\u4e50\u5e93\u627e\u5230\uff0c\u5df2\u7701\u7565\u80cc\u666f\u97f3\u4e50");
+                    fin.put("voice_warnings", warns);
                 }
                 Jobs.update(jobId, fin);
             } else {
@@ -849,6 +889,9 @@ public class ApiController {
             CANCELS.remove(jobId);
             if (holdSem) {
                 RENDER_SEM.release();
+                if (jobId.equals(RENDER_OWNER.get())) {
+                    RENDER_OWNER.set(null);
+                }
             }
         }
     }
@@ -1030,8 +1073,22 @@ public class ApiController {
             return Map.of("ok", false, "error", "\u4efb\u52a1\u4e0d\u5728\u8fd0\u884c\u4e2d");
         }
         c.set(true);
-        FfmpegCore.killCurrentFfmpeg();
-        Jobs.update(jobId, Map.of("progress", Map.of("message", "\u6b63\u5728\u53d6\u6d88\u2026")));
+        // 只有真正持有渲染信号量（正在跑 ffmpeg）的任务才需要杀 ffmpeg；
+        // 排队中的任务杀掉的是前一个任务的 ffmpeg —— 历史 bug，会误伤
+        if (jobId.equals(RENDER_OWNER.get())) {
+            FfmpegCore.killCurrentFfmpeg();
+        }
+        // 保留当前进度数值（step/total/percent），只换文案；整 map 替换会让 UI 进度条掉回 0%
+        Map<String, Object> newProg = new LinkedHashMap<>();
+        if (j.get("progress") instanceof Map<?, ?> cp) {
+            for (Map.Entry<?, ?> en : cp.entrySet()) {
+                if (en.getKey() instanceof String k) {
+                    newProg.put(k, en.getValue());
+                }
+            }
+        }
+        newProg.put("message", "\u6b63\u5728\u53d6\u6d88\u2026");
+        Jobs.update(jobId, Map.of("progress", newProg));
         return Map.of("ok", true, "job_id", jobId, "note", "\u5df2\u8bf7\u6c42\u53d6\u6d88\uff0c\u5c06\u5728\u4e0b\u4e00\u4e2a\u68c0\u67e5\u70b9\u505c\u6b62");
     }
 
@@ -1347,6 +1404,7 @@ public class ApiController {
         }
         try {
             // A restored entry must never be a symlink escape either.
+            Files.createDirectories(root); // 根目录缺失时 toRealPath 无法校验（新机器首次 /restore）
             if (!p.toRealPath(new LinkOption[0]).startsWith(root.toRealPath(new LinkOption[0]))) {
                 return null;
             }

@@ -212,7 +212,9 @@ public final class NativeWindow implements AutoCloseable {
 
     private static void logDebug(String msg) {
         try {
-            java.nio.file.Files.write(java.nio.file.Paths.get("D:/YUCL/data/native-debug.log"),
+            java.nio.file.Path d = com.aivideo.DataDirs.dataDir();
+            java.nio.file.Files.createDirectories(d);
+            java.nio.file.Files.write(d.resolve("native-debug.log"),
                     (msg + System.lineSeparator()).getBytes(),
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
         } catch (Exception ignored) {

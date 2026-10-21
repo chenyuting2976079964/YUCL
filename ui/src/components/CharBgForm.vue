@@ -148,7 +148,7 @@ chars.value = [makeEntity("chars"), makeEntity("chars")];
 bgs.value = [makeEntity("bgs")];
 const shots = ref<Shot[]>([{ char: chars.value[0].id, char2: chars.value[1].id, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" }]);
 
-const orientation = ref("16:9");
+const orientation = ref("9:16"); // 短视频以竖屏为主 → 默认竖屏（用户仍可切换）
 const provId = ref("");
 const videoModel = ref("");
 const imgModel = ref("");
@@ -209,10 +209,19 @@ function renderAll() {
 
 // 一键剧本 → 填入表单（供 ScriptPanel 调用）
 function applyScript(s: ScriptDoc): string {
-  chars.value = (s.characters || []).map(c => ({
-    id: ++uid, name: c.name || "人物", src: "prompt", prompt: c.appearance || "",
-    path: "", url: "", imgSrc: "", voice: c.voice || ""
-  }));
+  // 去重/补名：重名会让后端 entitiesMap 与镜头按名查找时后者覆盖前者
+  const used = new Set<string>();
+  chars.value = (s.characters || []).map((c, i) => {
+    let nm = ((c.name || "").trim() || ("人物" + (i + 1)));
+    if (used.has(nm)) nm = nm + " " + (i + 1);
+    used.add(nm);
+    return {
+      id: ++uid, name: nm, src: "prompt" as const, prompt: c.appearance || "",
+      path: "", url: "", imgSrc: "",
+      // LLM 给的 voice 多是描述词（「成熟女声」），不是可选的 tts:/file: 值 → 只保留合法前缀
+      voice: /^(tts:|file:)/.test(c.voice || "") ? (c.voice as string) : ""
+    };
+  });
   if (!chars.value.length) chars.value.push(makeEntity("chars"));
 
   bgs.value = [];

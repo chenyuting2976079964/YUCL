@@ -26,7 +26,7 @@
           <button type="button" class="btn" style="width:auto;padding:10px 18px" :disabled="busy" @click="gen">
             {{ busy ? "生成中…" : "生成剧本" }}
           </button>
-          <button v-if="script || raw" type="button" class="cb-addbtn" style="width:auto;padding:8px 14px" @click="apply">填入下方表单</button>
+          <button v-if="script" type="button" class="cb-addbtn" style="width:auto;padding:8px 14px" @click="apply">填入下方表单</button>
           <button v-if="script || raw" type="button" class="cb-addbtn" style="width:auto;padding:8px 14px" @click="copy">复制剧本</button>
         </div>
         <div class="status">{{ status }}</div>
@@ -107,17 +107,18 @@ async function gen() {
 }
 async function copy() {
   const s = script.value;
-  if (!s) return;
+  const txt = s ? scriptToText(s) : raw.value;
+  if (!txt) return;
   try {
-    await navigator.clipboard.writeText(scriptToText(s));
+    await navigator.clipboard.writeText(txt);
     status.value = "已复制到剪贴板";
   } catch {
-    uiPrompt("复制失败，请手动全选复制：", scriptToText(s));
+    uiPrompt("复制失败，请手动全选复制：", txt);
   }
 }
 function apply() {
   const s = script.value;
-  if (!s) return;
+  if (!s) return; // 只有原始输出（解析失败）时不可填入表单
   if (props.scriptToForm) {
     status.value = props.scriptToForm(s);
     emit("applied", s, status.value);

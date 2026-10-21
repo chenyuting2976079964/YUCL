@@ -1,19 +1,34 @@
 rem YUCL one-click build (this machine's paths; requires YUCL not running when deploying)
-setlocal
+setlocal enabledelayedexpansion
 set JAVA_HOME=C:\java\java25
 set MVN=D:\Maven\apache-maven-3.9.16-bin\apache-maven-3.9.16\bin\mvn.cmd
 set JP=C:\java\java25\bin\jpackage.exe
 cd /d D:\yucl-src
 
+echo [0/5] UI build (vue - npm run build)
+if not exist "ui\node_modules" goto :ui_done
+pushd ui
+call npm run build
+set "UIBUILD=%ERRORLEVEL%"
+popd
+if "%UIBUILD%"=="0" (
+    if exist "src\main\resources\static\assets" rmdir /s /q "src\main\resources\static\assets"
+    xcopy /e /y /q "ui\dist\*" "src\main\resources\static\" >nul
+    if exist "target\classes\static" rmdir /s /q "target\classes\static"
+    echo   static/ updated from ui/dist (manual.html kept)
+) else (
+    echo [!] UI build failed, continuing with existing static resources
+)
+:ui_done
+
 echo [1/5] fat jar
 call %MVN% -q -B package -DskipTests || goto :err
 
-echo [2/5] tools.jar
-if exist build-tools\classes\com\yuc\tools\Installer.class goto :have_tools
+echo [2/5] tools.jar (rebuild every time - stale class files must not mask newer sources)
+if exist build-tools\classes rmdir /s /q build-tools\classes
 mkdir build-tools\classes 2>nul
 "C:\java\java25\bin\javac.exe" -d build-tools\classes src\main\java\com\yuc\tools\Installer.java src\main\java\com\yuc\tools\Uninstaller.java || goto :err
 "C:\java\java25\bin\jar.exe" cfe build-tools\tools.jar com.yuc.tools.Installer -C build-tools\classes . || goto :err
-:have_tools
 
 echo [3/5] app image
 if exist dist\YUCL rmdir /s /q dist\YUCL

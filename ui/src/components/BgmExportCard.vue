@@ -97,9 +97,21 @@ async function remove() {
   const n = bgm.value;
   if (!n) return;
   if (!(await uiConfirm("删除 BGM 曲库中的 " + n + "？"))) return;
-  const j = await api.deleteMusic(n);
-  status.value = j.ok ? "✅ 已删除 " + n : "✕ " + (j.detail || "删除失败");
-  await store.loadMusic();
+  try {
+    const j = await api.deleteMusic(n);
+    if (j.ok) {
+      // 删的是当前选中曲 → 清引用并停预览，避免导出时 BGM 名指向已删文件（后端会静默丢 BGM）
+      if (bgm.value === n) {
+        bgm.value = "";
+      }
+      status.value = "✅ 已删除 " + n;
+    } else {
+      status.value = "✕ " + (j.detail || "删除失败");
+    }
+    await store.loadMusic();
+  } catch (ex: any) {
+    status.value = "✕ 删除失败：" + (ex?.message || ex);
+  }
 }
 
 defineExpose({

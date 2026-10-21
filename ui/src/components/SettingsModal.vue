@@ -59,7 +59,7 @@ const tabs = [
   { k: "lang", n: "语言" },
   { k: "app", n: "外观" },
   { k: "model", n: "模型配置" }
-];
+] as Array<{ k: "lang" | "app" | "model"; n: string }>;
 const cur = ref<"lang" | "app" | "model">("app");
 const provPanel = ref<InstanceType<typeof ProviderConfigPanel> | null>(null);
 

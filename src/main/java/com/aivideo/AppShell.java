@@ -105,6 +105,12 @@ extends Application {
         s.setWidth(geo[0] / this.outScale);
         s.setHeight(geo[1] / this.outScale);
         WebView view = new WebView();
+        // WebView 在任何窗口尺寸下都必须铺满内容区（StackPane 按 max 约束摆放子节点），
+        // 否则拉大/拉小窗口后 WebView 停留在首选尺寸，露出 Scene 背景（"空白带"根因之一）
+        view.setMinWidth(0.0);
+        view.setMinHeight(0.0);
+        view.setMaxWidth(Double.MAX_VALUE);
+        view.setMaxHeight(Double.MAX_VALUE);
         trace("webview ctor start");
         WebEngine engine = view.getEngine();
         trace("webview ctor done");
@@ -206,8 +212,31 @@ extends Application {
             s.setY(ev.getScreenY() - drag[1]);
         });
         javafx.scene.layout.VBox outer = new javafx.scene.layout.VBox();
+        // 关键：root（WebView 内容区）必须吃满剩余高度。VBox 只把多出的空间分给
+        // Vgrow=ALWAYS 的子节点，否则内容停在首选高度、多出来的区域露出 Scene 白底——
+        // 这就是上下拉窗口出现"空白带"的根因
+        javafx.scene.layout.VBox.setVgrow(root, javafx.scene.layout.Priority.ALWAYS);
         outer.getChildren().addAll(titleBar, root);
+        // 双保险：根节点画应用暗色底，缩放中途任何亚像素缝隙显示为深色而非白色
+        outer.setBackground(new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
+                javafx.scene.paint.Color.web("#0b0d14"), null, null)));
         s.setScene(new Scene(outer, geo[0] / this.outScale, geo[1] / this.outScale));
+        // 缩放后可观测性：布局真正重排完成时（root/view 尺寸属性更新）才记录，
+        // 避免在 outer 属性回调里读到上一帧的旧尺寸（1s 节流，避免拖拽刷屏）
+        final long[] lastSizeLog = { 0L };
+        java.util.function.Consumer<Object> sizeLog = o -> {
+            long now = System.currentTimeMillis();
+            if (now - lastSizeLog[0] > 1000L) {
+                lastSizeLog[0] = now;
+                trace("layout settled: outer " + outer.getWidth() + "x" + outer.getHeight()
+                        + " root " + root.getWidth() + "x" + root.getHeight()
+                        + " webview " + view.getWidth() + "x" + view.getHeight());
+            }
+        };
+        root.widthProperty().addListener((o, a, b) -> sizeLog.accept(b));
+        root.heightProperty().addListener((o, a, b) -> sizeLog.accept(b));
+        view.widthProperty().addListener((o, a, b) -> sizeLog.accept(b));
+        view.heightProperty().addListener((o, a, b) -> sizeLog.accept(b));
         // 缩放由 Windows 框架接管（NativeWindow 的 WM_NCCALCSIZE/WM_NCHITTEST 子类化），
         // 全程跟手、可超长拖拽；JavaFX 侧不需要任何缩放句柄节点。
         // 双击标题栏 = 最大化/还原
@@ -272,8 +301,11 @@ extends Application {
                             bi.setRGB(px, py, pr.getArgb(px, py));
                         }
                     }
-                    javax.imageio.ImageIO.write(bi, "png", new java.io.File("D:/YUCL/data/scene-snapshot.png"));
-                    trace("scene snapshot saved " + sw + "x" + sh);
+                    // 快照写到当前数据目录（不再写死 D:/YUCL/data，其它安装位置也能出诊断图）
+                    java.nio.file.Path snapDir = com.aivideo.DataDirs.dataDir();
+                    java.nio.file.Files.createDirectories(snapDir);
+                    javax.imageio.ImageIO.write(bi, "png", snapDir.resolve("scene-snapshot.png").toFile());
+                    trace("scene snapshot saved " + sw + "x" + sh + " -> " + snapDir.resolve("scene-snapshot.png"));
                 } catch (Exception ex) {
                     trace("snapshot failed: " + ex);
                 }
@@ -383,8 +415,14 @@ extends Application {
                 if (w >= 960.0 && h >= 600.0) {
                     double[] out = new double[]{w, h};
                     if (n.has("x") && n.has("y")) {
-                        this.stage.setX(n.get("x").asDouble());
-                        this.stage.setY(n.get("y").asDouble());
+                        // 合法性检查：window.json 被写坏 / 窗口被拖到已断开的显示器上时，
+                        // 盲恢复会让窗口掉到屏幕外且无法找回（任务管理器杀进程）
+                        double x = n.get("x").asDouble(0.0);
+                        double y = n.get("y").asDouble(0.0);
+                        if (x > -4000 && x < 4000 && y > -1000 && y < 3000 && Double.isFinite(x) && Double.isFinite(y)) {
+                            this.stage.setX(x);
+                            this.stage.setY(y);
+                        }
                     }
                     return out;
                 }

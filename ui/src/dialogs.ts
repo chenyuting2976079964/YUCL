@@ -18,6 +18,12 @@ export const dialog = reactive<DialogState>({
 
 function ask(kind: DialogKind, message: string, def = ""): Promise<any> {
   return new Promise(res => {
+    // 弹层已开着又来一个请求（如连点两次）：先按「取消」语义结清旧的，避免旧 Promise 永远悬空
+    if (dialog.open && dialog.resolve) {
+      const old = dialog.resolve;
+      dialog.resolve = null;
+      old(dialog.kind === "confirm" ? false : dialog.kind === "prompt" ? null : undefined);
+    }
     dialog.open = true;
     dialog.kind = kind;
     dialog.message = String(message);

@@ -222,13 +222,19 @@ public final class CharBgComposer {
                     if (Boolean.TRUE.equals(gen.get("ok"))) {
                         String clip = FfmpegCore.str(gen.get("video"));
                         String norm = runDir.resolve("c" + i + "_n.mp4").toString();
-                        FfmpegCore.normalize(clip, audio, norm, w, h, fps, sec);
-                        clipPaths.add(Files.exists(Paths.get(norm, new String[0]), new LinkOption[0]) ? norm : clip);
-                        processed.add(Map.of("index", i, "character", chName, "character2", ch2Name, "background", map != null ? FfmpegCore.str(map.get("name")) : "", "caption", text, "duration", sec, "engine", "ai", "audio_src", audioSrc, "gen", FfmpegCore.str(gen.get("video_id"))));
-                        CharBgComposer.bump(audioSrcCount, audioSrc);
-                        continue;
+                        Map<String, Object> nz = FfmpegCore.normalize(clip, audio, norm, w, h, fps, sec);
+                        if (Boolean.TRUE.equals(nz.get("ok")) && Files.exists(Paths.get(norm, new String[0]), new LinkOption[0])) {
+                            clipPaths.add(norm);
+                            processed.add(Map.of("index", i, "character", chName, "character2", ch2Name, "background", map != null ? FfmpegCore.str(map.get("name")) : "", "caption", text, "duration", sec, "engine", "ai", "audio_src", audioSrc, "gen", FfmpegCore.str(gen.get("video_id"))));
+                            CharBgComposer.bump(audioSrcCount, audioSrc);
+                            continue;
+                        }
+                        // 归一化失败：裸 AI 片段（720P/任意 fps/编码）混进 concat -c copy 会直接炸，
+                        // 改走本地合成兜底
+                        engineFallbacks.add("\u7b2c" + n1 + "\u955c\uff1aAI \u89c6\u9891\u5f52\u4e00\u5316\u5931\u8d25\uff08" + nz.get("error") + "\uff09\uff0c\u5df2\u6539\u7528\u672c\u5730\u5408\u6210");
+                    } else {
+                        engineFallbacks.add("\u7b2c" + n1 + "\u955c\uff1aAI \u751f\u6210\u5931\u8d25\uff08" + gen.get("error") + "\uff09\uff0c\u5df2\u6539\u7528\u672c\u5730\u5408\u6210");
                     }
-                    engineFallbacks.add("\u7b2c" + n1 + "\u955c\uff1aAI \u751f\u6210\u5931\u8d25\uff08" + gen.get("error") + "\uff09\uff0c\u5df2\u6539\u7528\u672c\u5730\u5408\u6210");
                 } else {
                     engineFallbacks.add("\u7b2c" + n1 + "\u955c\uff1aAI \u9700\u516c\u7f51\u56fe\u7247 URL\uff08\u63d0\u793a\u8bcd\u751f\u6210\u7684\u56fe\uff09\uff0c\u6240\u9009\u4e3a\u672c\u5730\u4e0a\u4f20\uff0c\u5df2\u6539\u7528\u672c\u5730\u5408\u6210");
                 }
@@ -335,7 +341,9 @@ public final class CharBgComposer {
         out.put("voice_warnings", voiceWarnings);
         out.put("engine_fallbacks", engineFallbacks);
         out.put("subtitles", subtitles && finalOut.contains("subs"));
-        out.put("model", model == null || model.isEmpty() ? "local" : model);
+        // 本地合成任务不应显示「请求的 AI 模型」——按实际是否用了 AI 镜头标注
+        boolean usedAi = processed.stream().anyMatch(p -> "ai".equals(p.get("engine")));
+        out.put("model", usedAi ? (model == null || model.isEmpty() ? "ai" : model) : "local");
         out.put("elapsed_s", (double)Math.round((double)(System.currentTimeMillis() - t0) / 100.0) / 10.0);
         out.put("size_bytes", Files.exists(Paths.get(finalOut, new String[0]), new LinkOption[0]) ? Long.valueOf(Files.size(Paths.get(finalOut, new String[0]))) : null);
         ArrayList processedOut = new ArrayList();
