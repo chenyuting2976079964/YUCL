@@ -156,10 +156,10 @@ export function setLang(l: Lang) {
 
 // ── 外观偏好（主题色 / 字号 / 密度）──
 export interface Appearance { accent: string; font: "std" | "large"; density: "comfort" | "compact" }
-const DEF: Appearance = { accent: "#4f7cff", font: "std", density: "comfort" };
+const DEF: Appearance = { accent: "#6366f1", font: "std", density: "comfort" };
 export const ACCENTS = [
-  { c: "#4f7cff", n: "蓝紫（默认）" },
-  { c: "#3b82f6", n: "蓝" },
+  { c: "#6366f1", n: "靛蓝（默认）" },
+  { c: "#4f7cff", n: "蓝" },
   { c: "#8b5cf6", n: "紫" },
   { c: "#10b981", n: "绿" },
   { c: "#f59e0b", n: "橙" },

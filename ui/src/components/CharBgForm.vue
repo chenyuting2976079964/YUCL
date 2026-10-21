@@ -2,7 +2,7 @@
   <form id="f-charbg" class="pane flow" @submit.prevent="submit">
     <!-- 步骤指示器 -->
     <div class="flow-steps">
-      <div v-for="st in steps" :key="st.k" class="fstep" :class="{ done: st.done }">
+      <div v-for="(st, i) in steps" :key="st.k" class="fstep" :class="{ done: st.done, cur: i === curIdx }">
         <div class="fnum">{{ st.done ? "✓" : st.n }}</div>
         <div class="flbl">{{ st.name }}</div>
       </div>
@@ -178,6 +178,8 @@ const steps = computed(() => [
   { k: "s", n: 3, name: t("step3"), done: shots.value.some(s => s.text.trim() !== "") },
   { k: "g", n: 4, name: t("step4"), done: false }
 ]);
+// 当前待办步骤（第一个未完成项）→ UI 高亮"现在该做哪一步"
+const curIdx = computed(() => steps.value.findIndex(s => !s.done));
 
 // 供应商/选项变化时同步默认模型
 watch(() => [store.options, store.activeProvider, provId.value] as const, () => {

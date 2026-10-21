@@ -58,7 +58,7 @@ const bgmCard = ref<InstanceType<typeof BgmExportCard> | null>(null);
 const charbgFormRef = ref<InstanceType<typeof CharBgForm> | null>(null);
 const showSettings = ref(false);
 
-// 全局钩子：原生标题栏（JavaFX）的「设置」齿轮按钮经 WebEngine.eval 调这里打开设置面板
+// 全局钩子：原生标题栏（JavaFX）的「设置」齿轮按钮经 WebEngine.executeScript 调这里打开设置面板
 (window as unknown as { __yuclOpenSettings?: () => void }).__yuclOpenSettings = () => {
   showSettings.value = true;
 };
