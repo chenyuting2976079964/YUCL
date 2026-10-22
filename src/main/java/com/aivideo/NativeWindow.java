@@ -71,8 +71,11 @@ public final class NativeWindow implements AutoCloseable {
     private static final int DWMWA_BORDER_COLOR = 34;
     private static final int DWMWA_CAPTION_COLOR = 35;
     private static final int DWMWA_TEXT_COLOR = 36;
+
     /** 抑制边框绘制（"rounded window with no border"） */
     private static final int DWMWA_COLOR_NONE = 0xFFFFFFFE;
+    /** DWMWCP_ROUND=2：Win11 圆角半径（与系统一致 ~8px）；Win10 接受该属性但视觉无效（优雅降级为方角） */
+    private static final int DWMWCP_ROUND = 2;
     /** 0x00AARRGGBB 不相关——COLORREF 小端 0x00BBGGRR：#0a0b0f */
     private static final int DWM_COLOR_DARK = 0x000F0B0A;
 
@@ -339,6 +342,11 @@ public final class NativeWindow implements AutoCloseable {
             com.sun.jna.Memory dm = new com.sun.jna.Memory(4);
             dm.setInt(0, 1);
             DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, dm, 4);
+            // 四周圆角：让 DWM 对整个窗口（含 undecorated 客户区）套 Win11 圆角遮罩，
+            // 标题栏/播放器四角随之圆弧化；Win10 上调用成功但无视觉变化
+            com.sun.jna.Memory corner = new com.sun.jna.Memory(4);
+            corner.setInt(0, DWMWCP_ROUND);
+            DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_WINDOW_CORNER_PREFERENCE, corner, 4);
         } catch (Throwable t) {
             logDebug("applyDwmColors failed: " + t);
         }
