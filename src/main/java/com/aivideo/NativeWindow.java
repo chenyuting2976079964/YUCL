@@ -52,9 +52,13 @@ public final class NativeWindow implements AutoCloseable {
     private static final int BRUSH_DARK = 0x000F0B0A;
 
     /**
-     * DWM 边框色（dwmapi.h）：Win10 2004+/Win11 下，DWM 在窗口四周画 1px 边框，
-     * 窗口失焦（inactive）时边框默认取浅色主题的白色 → 这就是"选中其他窗口时
-     * YUCL 四周出现白框"的根因（聚焦时边框为 active 色/不可见，所以切回来就消失）。
+     * DWM 窗口属性（dwmapi.h，Win11 22000+）。失焦白框的机制：
+     * DWM 给每个顶层窗口画 1px 边框，颜色随激活状态联动——官方文档原话
+     * "The app is responsible for changing the border color according to state
+     * changes, such as a change in window activation"。启动时设一次暗色只管
+     * active 状态；窗口失焦（用户点了别的窗口）时 DWM 回退系统默认（浅色主题
+     * = 白）→ 四周白框只在失焦时可见。正解：BORDER_COLOR 设 DWMWA_COLOR_NONE
+     * 彻底禁画边框（与激活状态无关），再顺手染 caption/text 深色 + 暗色模式。
      */
     interface DwmApi extends com.sun.jna.Library {
         DwmApi INSTANCE = Native.load("dwmapi", DwmApi.class);
@@ -62,8 +66,15 @@ public final class NativeWindow implements AutoCloseable {
         /** HRESULT DwmSetWindowAttribute(HWND, DWORD, const void*, DWORD) */
         int DwmSetWindowAttribute(WinDef.HWND hwnd, int dwAttribute, Pointer pvAttribute, int cbAttribute);
     }
-    private static final int DWMWA_BORDER_COLOR = 33;
-    private static final int DWMWA_CAPTION_COLOR = 34;
+    private static final int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    private static final int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private static final int DWMWA_BORDER_COLOR = 34;
+    private static final int DWMWA_CAPTION_COLOR = 35;
+    private static final int DWMWA_TEXT_COLOR = 36;
+    /** 抑制边框绘制（"rounded window with no border"） */
+    private static final int DWMWA_COLOR_NONE = 0xFFFFFFFE;
+    /** 0x00AARRGGBB 不相关——COLORREF 小端 0x00BBGGRR：#0a0b0f */
+    private static final int DWM_COLOR_DARK = 0x000F0B0A;
 
     private static final int GWL_WNDPROC = -4;
     private static final int GWL_STYLE = -16;
@@ -232,20 +243,29 @@ public final class NativeWindow implements AutoCloseable {
                 logDebug("HBRBACKGROUND swap failed (fallback: white gaps may show): " + t);
             }
 
-            // 染 DWM 窗口边框色（失焦时 DWM 在窗口四周画的 1px 边框，默认浅色主题白色）。
-            // 老系统（Win10 2004 前）不支持该属性，返回非 0 HRESULT——记日志后继续，不中断安装。
+            // DWM 边框治理（Win11 22000+；老系统返回非 0 时记日志降级，不中断安装）：
+            // 1) BORDER_COLOR = DWMWA_COLOR_NONE —— 彻底不画边框（与激活状态无关，
+            //    失焦白框从根源消失，而不是"染深色"——深色会被 DWM 在失焦时再次回退）
+            // 2) CAPTION/TEXT 染深 + 暗色模式 —— 兜底其它 DWM 帧元素
             try {
-                com.sun.jna.Memory m = new com.sun.jna.Memory(4);
-                m.setInt(0, BRUSH_DARK); // COLORREF 小端
-                int hr = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, m, 4);
-                hr = Math.max(hr, DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, m, 4));
-                if (hr == 0) {
-                    logDebug("DWM border/caption color set to dark");
+                com.sun.jna.Memory none = new com.sun.jna.Memory(4);
+                none.setInt(0, DWMWA_COLOR_NONE);
+                int hrBorder = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, none, 4);
+                if (hrBorder == 0) {
+                    logDebug("DWM border suppressed via DWMWA_COLOR_NONE");
                 } else {
-                    logDebug("DwmSetWindowAttribute hr=0x" + Integer.toHexString(hr) + " (border color unsupported on this build of Windows; white inactive frame may persist)");
+                    logDebug("DWM BORDER_COLOR NONE failed hr=0x" + Integer.toHexString(hrBorder) + " (need Win11 22000+; inactive white frame may persist)");
                 }
+                // 其余属性 best-effort（无边框窗口上 caption/text 可能不适用，失败无碍）
+                com.sun.jna.Memory dark = new com.sun.jna.Memory(4);
+                dark.setInt(0, DWM_COLOR_DARK);
+                DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, dark, 4);
+                DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_TEXT_COLOR, dark, 4);
+                com.sun.jna.Memory darkMode = new com.sun.jna.Memory(4);
+                darkMode.setInt(0, 1);
+                DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, darkMode, 4);
             } catch (Throwable t) {
-                logDebug("DWM border color set failed: " + t);
+                logDebug("DWM attributes set failed: " + t);
             }
 
             WndProc cb = new WndProc(h, oldProc, border, titleBarH, rightButtonsW);
