@@ -46,8 +46,8 @@ public final class NativeWindow implements AutoCloseable {
         long CreateSolidBrush(int color);
     }
 
-    /** GCLP_HBRBACKGROUND：替换窗口类的背景画刷 */
-    private static final int GCLP_HBRBACKGROUND = -104;
+    /** GCLP_HBRBACKGROUND：替换窗口类的背景画刷（winuser.h 标准值 = -10） */
+    private static final int GCLP_HBRBACKGROUND = -10;
     /** 0x00BBGGRR：#0a0b0f → R=0x0a G=0x0b B=0x0f */
     private static final int BRUSH_DARK = 0x000F0B0A;
 
@@ -72,7 +72,10 @@ public final class NativeWindow implements AutoCloseable {
     private static final int DWMWA_CAPTION_COLOR = 35;
     private static final int DWMWA_TEXT_COLOR = 36;
 
-    /** 抑制边框绘制（"rounded window with no border"） */
+    /** 抑制边框绘制：官方 DWMWINDOWATTRIBUTE 文档（Win11 22000+）——
+     *  "Specifying DWMWA_COLOR_NONE (value 4294967294, see dwmapi.h) for the color will suppress
+     *   the drawing of the window border. This makes it possible to have a rounded
+     *   window with no border."  即"圆角 + 无边框"的官方做法（PowerToys/Tauri 同款修复）。 */
     private static final int DWMWA_COLOR_NONE = 0xFFFFFFFE;
     /** DWMWCP_ROUND=2：Win11 圆角半径（与系统一致 ~8px）；Win10 接受该属性但视觉无效（优雅降级为方角） */
     private static final int DWMWCP_ROUND = 2;
@@ -145,9 +148,9 @@ public final class NativeWindow implements AutoCloseable {
                     return hitTest(u32, h, lp);
                 }
 
-                // 激活状态变化：DWM 会在失焦时把边框回退成系统浅色（白）→ 失焦白框。
-                // 每次 active/inactive 切换都重新钉成应用深色，两种状态边框都不可见。
-                // 处理完必须转发给 Glass（它靠这些消息维护自身激活/焦点状态）。
+                // 激活状态变化：重新钉住 DWM 边框抑制（COLOR_NONE）+ 圆角等属性（幂等），
+                // 防止 DWM 在状态切换时恢复默认边框。处理完必须转发给 Glass
+                //（它靠这些消息维护自身激活/焦点状态）。
                 case WM_ACTIVATE:
                 case WM_SETFOCUS:
                 case WM_KILLFOCUS:
@@ -252,8 +255,12 @@ public final class NativeWindow implements AutoCloseable {
             try {
                 long darkBrush = Gdi32Ex.INSTANCE.CreateSolidBrush(BRUSH_DARK);
                 if (darkBrush != 0L) {
-                    User32Ex.INSTANCE.SetClassLongPtr(h, GCLP_HBRBACKGROUND, darkBrush);
-                    logDebug("class HBRBACKGROUND set to dark brush 0x" + Long.toHexString(darkBrush));
+                    BaseTSD.LONG_PTR prev = User32Ex.INSTANCE.SetClassLongPtr(h, GCLP_HBRBACKGROUND, darkBrush);
+                    boolean ok = prev != null && prev.longValue() != 0L;
+                    logDebug("class HBRBACKGROUND->dark 0x" + Long.toHexString(darkBrush)
+                            + " GCLP=" + GCLP_HBRBACKGROUND
+                            + " SetClassLongPtr prev=0x" + (prev == null ? "null" : Long.toHexString(prev.longValue()))
+                            + " ok=" + ok);
                 }
             } catch (Throwable t) {
                 logDebug("HBRBACKGROUND swap failed (fallback: white gaps may show): " + t);
@@ -315,27 +322,29 @@ public final class NativeWindow implements AutoCloseable {
     }
 
     /**
-     * 重新应用 DWM 边框/标题/文本颜色为深色（#0a0b0f）。
+     * 重新应用 DWM 边框/标题/文本/圆角属性。
      *
-     * <p><b>失焦白框的真正根因</b>：DWM 边框色是"激活状态相关"的——Microsoft 文档原话
-     * "The app is responsible for changing the border color according to state changes,
-     * such as a change in window activation"。只在窗口创建时设一次（active 状态）不够：
-     * 用户点击别的窗口让 YUCL 失焦时，DWM 会把边框回退成系统默认（浅色主题=白），
-     * 于是白框只在失焦时出现；且 {@code DWMWA_COLOR_NONE} 抑制对 undecorated 窗口实测
-     * 不生效（返回 0 但视觉无变化）。
+     * <p><b>白边根因与官方解法</b>：Win11 的 DWM 给每个顶层窗口（含 undecorated）画一圈
+     * 1-2px 边框，颜色随激活状态联动（active/inactive 各一套），浅色主题下失焦时
+     * 回退成白——这就是界面四周的白边。按官方 DWMWINDOWATTRIBUTE 文档（Win11 22000+）：
+     * 指定 <b>DWMWA_COLOR_NONE（值 4294967294，见 dwmapi.h）</b> 可<b>彻底抑制边框绘制</b>——
+     * "rounded window with no border"，与激活状态无关（PowerToys PR#48091 同款修复）。
+     * 圆角（WINDOW_CORNER_PREFERENCE=ROUND）与投影不受影响，仍由 DWM 正常渲染。
      *
-     * <p>正解：边框色钉成应用深色 {@code #0a0b0f}（与深色标题栏/UI 同色，视觉不可见），
-     * 并在<b>每次激活状态变化</b>（WM_ACTIVATE / WM_SETFOCUS / WM_KILLFOCUS）时重新应用，
-     * 使 active 与 inactive 两种状态边框都保持深色，白框从机制上消失。
+     * <p>caption/text 染深色 + immersive dark mode 作为配套（边框抑制后基本不可见，
+     * 保留以防未来样式变化）。每次激活状态变化时重新应用（幂等）。
      */
     private static void applyDwmColors(WinDef.HWND h) {
         try {
             com.sun.jna.Memory border = new com.sun.jna.Memory(4);
-            border.setInt(0, DWM_COLOR_DARK);
+            border.setInt(0, DWMWA_COLOR_NONE); // 4294967294：抑制 DWM 边框线（dwmapi.h DWMWA_COLOR_NONE）
             int hrBorder = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, border, 4);
-            logDebug("DWM applyDwmColors: BORDER hr=0x" + Integer.toHexString(hrBorder)
-                    + " CAPTION/TEXT->" + Integer.toHexString(DWM_COLOR_DARK));
-            DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, border, 4);
+            logDebug("DWM applyDwmColors: BORDER=COLOR_NONE(0x" + Integer.toHexString(DWMWA_COLOR_NONE)
+                    + ") hr=0x" + Integer.toHexString(hrBorder));
+            // caption（undecorated 窗口不可见，仅防御）染深色；COLOR_NONE 语义未定义于 caption，勿混用
+            com.sun.jna.Memory caption = new com.sun.jna.Memory(4);
+            caption.setInt(0, DWM_COLOR_DARK);
+            DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, caption, 4);
             com.sun.jna.Memory white = new com.sun.jna.Memory(4);
             white.setInt(0, 0x00FFFFFF);
             DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_TEXT_COLOR, white, 4);
@@ -346,7 +355,12 @@ public final class NativeWindow implements AutoCloseable {
             // 标题栏/播放器四角随之圆弧化；Win10 上调用成功但无视觉变化
             com.sun.jna.Memory corner = new com.sun.jna.Memory(4);
             corner.setInt(0, DWMWCP_ROUND);
-            DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_WINDOW_CORNER_PREFERENCE, corner, 4);
+            int hrCorner = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_WINDOW_CORNER_PREFERENCE, corner, 4);
+            // 已尝试禁用 DWM 非客户区渲染（属性 2）根治白边——实测副作用：窗口边缘变成
+            // 全透明，桌面直接透出来（比白边更糟），故回退；白边改由类背景画刷（深色）
+            // + DWM 边框染色覆盖。
+            logDebug("DWM applyDwmColors: CORNER hr=0x" + Integer.toHexString(hrCorner)
+                    + " (NC rendering kept enabled)");
         } catch (Throwable t) {
             logDebug("applyDwmColors failed: " + t);
         }
