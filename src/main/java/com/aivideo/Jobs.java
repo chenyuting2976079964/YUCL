@@ -108,7 +108,16 @@ public final class Jobs {
         Object object = LOCK;
         synchronized (object) {
             try {
-                Files.writeString(Jobs.file(), (CharSequence)JSON.writerWithDefaultPrettyPrinter().writeValueAsString(jobs), StandardCharsets.UTF_8, new OpenOption[0]);
+                Path target = Jobs.file();
+                Files.createDirectories(target.getParent(), new FileAttribute[0]);
+                // 原子替换：进程在写一半时崩溃不会留下半截 JSON（旧文件原样保留）
+                Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+                Files.writeString(tmp, (CharSequence)JSON.writerWithDefaultPrettyPrinter().writeValueAsString(jobs), StandardCharsets.UTF_8, new OpenOption[0]);
+                try {
+                    Files.move(tmp, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
             }
             catch (Exception e) {
                 System.err.println("[ai-video] jobs save failed: " + e);

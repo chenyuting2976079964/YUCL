@@ -149,7 +149,10 @@ export const api = {
   deleteJob: (id: string) =>
     fetch(API + "/jobs/" + encodeURIComponent(id), { method: "DELETE" }).then(r => j<{ ok: boolean; error?: string; detail?: string }>(r)),
   openInBrowser: (url: string) =>
-    fetch(API + "/open-in-browser?url=" + encodeURIComponent(url)).then(r => j<{ ok: boolean }>(r)),
+    fetch(API + "/open-in-browser?url=" + encodeURIComponent(url)).then(r => j<{ ok: boolean; error?: string; detail?: string }>(r)),
+  // 用 job_id 让后端自己拼流地址（相对 URL 会被后端拒收；端口也由服务端决定）
+  openJobInBrowser: (jobId: string) =>
+    fetch(API + "/open-in-browser?job_id=" + encodeURIComponent(jobId)).then(r => j<{ ok: boolean; error?: string; detail?: string }>(r)),
 
   voices: () => fetch(API + "/voices").then(r => j<{ voices: VoiceItem[] }>(r)),
   uploadVoice: (fd: FormData) =>

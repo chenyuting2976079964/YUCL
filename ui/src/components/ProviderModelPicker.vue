@@ -56,7 +56,8 @@ function onProvChange(e: Event) {
   emit("update:providerId", pid);
   const p = providerOf(pid);
   const dv = p ? ((p as unknown as Record<string, string | undefined>)["default_" + props.kind + "_model"]) || "" : "";
-  if (dv) emit("update:model", dv);
+  // 无条件同步：切到没有默认模型的供应商时清空旧值，避免拿旧模型去调新供应商
+  emit("update:model", dv);
 }
 function onModelChange(e: Event) {
   emit("update:model", (e.target as HTMLSelectElement).value);

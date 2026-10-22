@@ -82,6 +82,10 @@ public final class NativeWindow implements AutoCloseable {
     private static final int WM_DESTROY = 0x0002;
     private static final int WM_NCCALCSIZE = 0x0083;
     private static final int WM_NCHITTEST = 0x0084;
+    /** 激活/失焦状态消息 —— 用于在每次激活变化时重新钉住深色 DWM 边框 */
+    private static final int WM_ACTIVATE = 0x0006;
+    private static final int WM_SETFOCUS = 0x0001;
+    private static final int WM_KILLFOCUS = 0x0008;
 
     private static final int HTCLIENT = 1;
     private static final int HTCAPTION = 2;
@@ -137,6 +141,15 @@ public final class NativeWindow implements AutoCloseable {
                     }
                     return hitTest(u32, h, lp);
                 }
+
+                // 激活状态变化：DWM 会在失焦时把边框回退成系统浅色（白）→ 失焦白框。
+                // 每次 active/inactive 切换都重新钉成应用深色，两种状态边框都不可见。
+                // 处理完必须转发给 Glass（它靠这些消息维护自身激活/焦点状态）。
+                case WM_ACTIVATE:
+                case WM_SETFOCUS:
+                case WM_KILLFOCUS:
+                    applyDwmColors(h);
+                    return u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
 
                 default:
                     return u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
@@ -244,29 +257,10 @@ public final class NativeWindow implements AutoCloseable {
             }
 
             // DWM 边框治理（Win11 22000+；老系统返回非 0 时记日志降级，不中断安装）：
-            // 1) BORDER_COLOR = DWMWA_COLOR_NONE —— 彻底不画边框（与激活状态无关，
-            //    失焦白框从根源消失，而不是"染深色"——深色会被 DWM 在失焦时再次回退）
-            // 2) CAPTION/TEXT 染深 + 暗色模式 —— 兜底其它 DWM 帧元素
-            try {
-                com.sun.jna.Memory none = new com.sun.jna.Memory(4);
-                none.setInt(0, DWMWA_COLOR_NONE);
-                int hrBorder = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, none, 4);
-                if (hrBorder == 0) {
-                    logDebug("DWM border suppressed via DWMWA_COLOR_NONE");
-                } else {
-                    logDebug("DWM BORDER_COLOR NONE failed hr=0x" + Integer.toHexString(hrBorder) + " (need Win11 22000+; inactive white frame may persist)");
-                }
-                // 其余属性 best-effort（无边框窗口上 caption/text 可能不适用，失败无碍）
-                com.sun.jna.Memory dark = new com.sun.jna.Memory(4);
-                dark.setInt(0, DWM_COLOR_DARK);
-                DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, dark, 4);
-                DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_TEXT_COLOR, dark, 4);
-                com.sun.jna.Memory darkMode = new com.sun.jna.Memory(4);
-                darkMode.setInt(0, 1);
-                DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, darkMode, 4);
-            } catch (Throwable t) {
-                logDebug("DWM attributes set failed: " + t);
-            }
+            // 边框/标题染应用深色 #0a0b0f（与 UI 同色→视觉不可见）+ 文本染白 + 暗色模式。
+            // 注意：这只是"启动时（active 状态）"的一次应用；失焦时 DWM 会回退系统浅色边框，
+            // 真正消除失焦白框靠 WndProc 在 WM_ACTIVATE/SETFOCUS/KILLFOCUS 时反复调用本方法。
+            applyDwmColors(h);
 
             WndProc cb = new WndProc(h, oldProc, border, titleBarH, rightButtonsW);
             Pointer tramp = CallbackReference.getFunctionPointer(cb);
@@ -315,6 +309,39 @@ public final class NativeWindow implements AutoCloseable {
             return false;
         }
         return User32Ex.INSTANCE.IsZoomed(hwnd);
+    }
+
+    /**
+     * 重新应用 DWM 边框/标题/文本颜色为深色（#0a0b0f）。
+     *
+     * <p><b>失焦白框的真正根因</b>：DWM 边框色是"激活状态相关"的——Microsoft 文档原话
+     * "The app is responsible for changing the border color according to state changes,
+     * such as a change in window activation"。只在窗口创建时设一次（active 状态）不够：
+     * 用户点击别的窗口让 YUCL 失焦时，DWM 会把边框回退成系统默认（浅色主题=白），
+     * 于是白框只在失焦时出现；且 {@code DWMWA_COLOR_NONE} 抑制对 undecorated 窗口实测
+     * 不生效（返回 0 但视觉无变化）。
+     *
+     * <p>正解：边框色钉成应用深色 {@code #0a0b0f}（与深色标题栏/UI 同色，视觉不可见），
+     * 并在<b>每次激活状态变化</b>（WM_ACTIVATE / WM_SETFOCUS / WM_KILLFOCUS）时重新应用，
+     * 使 active 与 inactive 两种状态边框都保持深色，白框从机制上消失。
+     */
+    private static void applyDwmColors(WinDef.HWND h) {
+        try {
+            com.sun.jna.Memory border = new com.sun.jna.Memory(4);
+            border.setInt(0, DWM_COLOR_DARK);
+            int hrBorder = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, border, 4);
+            logDebug("DWM applyDwmColors: BORDER hr=0x" + Integer.toHexString(hrBorder)
+                    + " CAPTION/TEXT->" + Integer.toHexString(DWM_COLOR_DARK));
+            DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, border, 4);
+            com.sun.jna.Memory white = new com.sun.jna.Memory(4);
+            white.setInt(0, 0x00FFFFFF);
+            DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_TEXT_COLOR, white, 4);
+            com.sun.jna.Memory dm = new com.sun.jna.Memory(4);
+            dm.setInt(0, 1);
+            DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, dm, 4);
+        } catch (Throwable t) {
+            logDebug("applyDwmColors failed: " + t);
+        }
     }
 
     private static void logDebug(String msg) {

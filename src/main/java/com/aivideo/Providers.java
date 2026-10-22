@@ -87,8 +87,16 @@ public final class Providers {
         Object object = LOCK;
         synchronized (object) {
             try {
-                Files.createDirectories(Providers.file().getParent(), new FileAttribute[0]);
-                Files.writeString(Providers.file(), (CharSequence)JSON.writerWithDefaultPrettyPrinter().writeValueAsString(newState), StandardCharsets.UTF_8, new OpenOption[0]);
+                Path target = Providers.file();
+                Files.createDirectories(target.getParent(), new FileAttribute[0]);
+                // 原子替换：写一半崩溃时旧配置完好无损
+                Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+                Files.writeString(tmp, (CharSequence)JSON.writerWithDefaultPrettyPrinter().writeValueAsString(newState), StandardCharsets.UTF_8, new OpenOption[0]);
+                try {
+                    Files.move(tmp, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
             }
             catch (Exception e) {
                 System.err.println("[ai-video] provider config save failed: " + e);

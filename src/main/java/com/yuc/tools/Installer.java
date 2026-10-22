@@ -213,7 +213,18 @@ public final class Installer {
             for (int i = all.size() - 1; i >= 0; --i) {
                 Path p = all.get(i);
                 if (p.equals(root) || !Files.exists(p, new LinkOption[0])) continue;
-                Files.delete(p);
+                try {
+                    Files.delete(p);
+                } catch (IOException locked) {
+                    // 升级时旧进程可能还没完全退出（taskkill 有竞态）→ 文件短暂被锁。
+                    // 重试一次；仍失败就跳过——后续 copyTree 会覆盖同名文件，
+                    // 真正删不掉的只在目录里留残文件，不该让整个安装中断。
+                    try {
+                        Thread.sleep(500L);
+                        if (Files.exists(p, new LinkOption[0])) Files.delete(p);
+                    } catch (Exception ignored) {
+                    }
+                }
             }
         }
         Files.deleteIfExists(root);

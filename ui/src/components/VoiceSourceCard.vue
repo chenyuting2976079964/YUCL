@@ -51,6 +51,10 @@ const store = useAppStore();
 const options = computed(() => store.options);
 const mode = ref<"tts" | "file">("tts");
 const voice = ref(store.options?.default_voice || "");
+// options 是异步加载的：setup 时若还没就绪，等它到达后回填默认音色（不覆盖用户手动选择）
+watch(() => store.options, o => {
+  if (!voice.value && o?.default_voice) voice.value = o.default_voice;
+}, { immediate: true });
 const libName = ref("");
 const upStatus = ref("");
 const prev = ref<HTMLAudioElement | null>(null);

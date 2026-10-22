@@ -99,11 +99,14 @@ async function playUri(uri: string, m?: MediaMeta) {
   playerError.value = "该作品文件已不存在（或超过 40MB 直传上限）";
 }
 async function openInBrowser() {
-  if (!current.value) return;
+  if (!current.value || !activeJobId.value) return;
   try {
-    const j = await api.openInBrowser(current.value);
+    const j = await api.openJobInBrowser(activeJobId.value);
     if (j && j.ok) playerHint.value = "已在系统浏览器打开";
-  } catch { /* 静默 */ }
+    else playerHint.value = "⚠ 打开失败：" + ((j && (j.error || j.detail)) || "未知原因");
+  } catch (e) {
+    playerHint.value = "⚠ 打开失败：" + ((e as Error)?.message || "网络错误");
+  }
 }
 async function cancel(id: string) {
   let j: Awaited<ReturnType<typeof api.cancelJob>>;

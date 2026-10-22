@@ -1131,7 +1131,12 @@ public class ApiController {
         if (job == null) {
             return ResponseEntity.status((int)404).body(Map.of("detail", "unknown job"));
         }
-        Path path = Paths.get(FfmpegCore.str(job.get("video")), new String[0]);
+        String videoPath = FfmpegCore.str(job.get("video"));
+        if (videoPath.isEmpty()) {
+            // 还在渲染（video 字段完成时才写入）：空路径会解析到工作目录导致 500
+            return ResponseEntity.status((int)409).body(Map.of("detail", "视频尚未生成完成"));
+        }
+        Path path = Paths.get(videoPath, new String[0]);
         if (!Files.exists(path, new LinkOption[0])) {
             return ResponseEntity.status((int)410).body(Map.of("detail", "media no longer on disk"));
         }
@@ -1162,7 +1167,12 @@ public class ApiController {
         if (job == null) {
             return ResponseEntity.status((int)404).build();
         }
-        Path path = Paths.get(FfmpegCore.str(job.get("video")), new String[0]);
+        String videoPath = FfmpegCore.str(job.get("video"));
+        if (videoPath.isEmpty()) {
+            // 渲染中：空路径会让 serveFile 对工作目录统计出 total=0 → 误导性的 416
+            return ResponseEntity.status((int)409).build();
+        }
+        Path path = Paths.get(videoPath, new String[0]);
         if (!Files.exists(path, new LinkOption[0])) {
             return ResponseEntity.status((int)410).build();
         }
@@ -1488,11 +1498,13 @@ public class ApiController {
 
     /** Opens a YUCL URL in the system's default browser (JavaFX WebView can't decode h264 here). */
     @GetMapping(value={"/open-in-browser"})
-    public Map<String, Object> openInBrowser(@RequestParam(name="url", required=false) String url, @RequestParam(name="job_id", required=false) String jobId) {
+    public Map<String, Object> openInBrowser(@RequestParam(name="url", required=false) String url, @RequestParam(name="job_id", required=false) String jobId, jakarta.servlet.http.HttpServletRequest req) {
+        // 用请求自身的 host/port 构造放行前缀（SERVER_PORT 改端口后不再被写死的 8791 拒收）
+        String selfBase = "http://" + req.getServerName() + ":" + req.getLocalPort();
         String target = "";
         if (url != null && !url.isEmpty()) {
             String u = url;
-            if (u.startsWith("http://127.0.0.1:8791") || u.startsWith("http://localhost:8791")) {
+            if (u.startsWith(selfBase) || u.startsWith("http://127.0.0.1:8791") || u.startsWith("http://localhost:8791")) {
                 target = u;
             }
         }
@@ -1501,7 +1513,7 @@ public class ApiController {
             if (!jobId.equals(safe)) {
                 return Map.of("ok", false, "error", "bad job_id");
             }
-            target = "http://127.0.0.1:8791/api/plugins/ai-video/stream?job_id=" + safe;
+            target = selfBase + "/api/plugins/ai-video/stream?job_id=" + safe;
         }
         if (target.isEmpty()) {
             return Map.of("ok", false, "error", "no url");

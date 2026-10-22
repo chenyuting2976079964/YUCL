@@ -47,6 +47,11 @@ public class YuclApp {
         // \u5feb\u901f\u542f\u52a8\uff1a\u5148\u5f39\u51fa\u5e94\u7528\u7a97\u53e3\uff08\u95ea\u5c4f\uff09\uff0c\u670d\u52a1\u5728\u540e\u53f0\u542f\u52a8\uff0chealthz \u5c31\u7eea\u540e\u7a97\u53e3\u81ea\u52a8\u5207\u5165\u754c\u9762
         AtomicReference<ConfigurableApplicationContext> ctxRef = new AtomicReference<>();
         Runnable shutdown = () -> {
+            // 关窗时杀掉正在渲染的 ffmpeg，避免孤儿进程继续写文件（cancel 只覆盖手动取消）
+            try {
+                FfmpegCore.killCurrentFfmpeg();
+            } catch (Exception ignored) {
+            }
             ConfigurableApplicationContext c = ctxRef.get();
             if (c != null) {
                 try {
