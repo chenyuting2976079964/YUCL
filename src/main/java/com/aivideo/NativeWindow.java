@@ -51,6 +51,20 @@ public final class NativeWindow implements AutoCloseable {
     /** 0x00BBGGRR：#0a0b0f → R=0x0a G=0x0b B=0x0f */
     private static final int BRUSH_DARK = 0x000F0B0A;
 
+    /**
+     * DWM 边框色（dwmapi.h）：Win10 2004+/Win11 下，DWM 在窗口四周画 1px 边框，
+     * 窗口失焦（inactive）时边框默认取浅色主题的白色 → 这就是"选中其他窗口时
+     * YUCL 四周出现白框"的根因（聚焦时边框为 active 色/不可见，所以切回来就消失）。
+     */
+    interface DwmApi extends com.sun.jna.Library {
+        DwmApi INSTANCE = Native.load("dwmapi", DwmApi.class);
+
+        /** HRESULT DwmSetWindowAttribute(HWND, DWORD, const void*, DWORD) */
+        int DwmSetWindowAttribute(WinDef.HWND hwnd, int dwAttribute, Pointer pvAttribute, int cbAttribute);
+    }
+    private static final int DWMWA_BORDER_COLOR = 33;
+    private static final int DWMWA_CAPTION_COLOR = 34;
+
     private static final int GWL_WNDPROC = -4;
     private static final int GWL_STYLE = -16;
     private static final int WS_THICKFRAME = 0x00040000;
@@ -216,6 +230,22 @@ public final class NativeWindow implements AutoCloseable {
                 }
             } catch (Throwable t) {
                 logDebug("HBRBACKGROUND swap failed (fallback: white gaps may show): " + t);
+            }
+
+            // 染 DWM 窗口边框色（失焦时 DWM 在窗口四周画的 1px 边框，默认浅色主题白色）。
+            // 老系统（Win10 2004 前）不支持该属性，返回非 0 HRESULT——记日志后继续，不中断安装。
+            try {
+                com.sun.jna.Memory m = new com.sun.jna.Memory(4);
+                m.setInt(0, BRUSH_DARK); // COLORREF 小端
+                int hr = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, m, 4);
+                hr = Math.max(hr, DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, m, 4));
+                if (hr == 0) {
+                    logDebug("DWM border/caption color set to dark");
+                } else {
+                    logDebug("DwmSetWindowAttribute hr=0x" + Integer.toHexString(hr) + " (border color unsupported on this build of Windows; white inactive frame may persist)");
+                }
+            } catch (Throwable t) {
+                logDebug("DWM border color set failed: " + t);
             }
 
             WndProc cb = new WndProc(h, oldProc, border, titleBarH, rightButtonsW);
