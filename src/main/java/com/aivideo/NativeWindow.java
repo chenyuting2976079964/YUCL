@@ -34,7 +34,22 @@ public final class NativeWindow implements AutoCloseable {
         User32Ex INSTANCE = Native.load("user32", User32Ex.class, W32APIOptions.DEFAULT_OPTIONS);
 
         boolean IsZoomed(WinDef.HWND hWnd);
+
+        /** 64 位参数版（GCLP_HBRBACKGROUND 的画刷句柄是 pointer-sized） */
+        WinDef.LRESULT SetClassLongPtr(WinDef.HWND hWnd, int nIndex, long dwNewLong);
     }
+
+    /** Gdi32：创建窗口类背景画刷（句柄返回原始 long，避免 jna WinDef.HANDLE 差异） */
+    interface Gdi32Ex extends com.sun.jna.Library {
+        Gdi32Ex INSTANCE = Native.load("gdi32", Gdi32Ex.class, W32APIOptions.DEFAULT_OPTIONS);
+
+        long CreateSolidBrush(int color);
+    }
+
+    /** GCLP_HBRBACKGROUND：替换窗口类的背景画刷 */
+    private static final int GCLP_HBRBACKGROUND = -104;
+    /** 0x00BBGGRR：#0a0b0f → R=0x0a G=0x0b B=0x0f */
+    private static final int BRUSH_DARK = 0x000F0B0A;
 
     private static final int GWL_WNDPROC = -4;
     private static final int GWL_STYLE = -16;
@@ -189,6 +204,19 @@ public final class NativeWindow implements AutoCloseable {
             // 保险：确保 WS_THICKFRAME 存在（框架 resize 循环的前提；幂等）
             int style = u32.GetWindowLong(h, GWL_STYLE);
             u32.SetWindowLong(h, GWL_STYLE, style | WS_THICKFRAME);
+
+            // 把窗口类的背景画刷从默认白色（GetSysColorBrush(COL_WINDOW)）染成深色。
+            // undecorated 窗口在 DPI 取整/最大化时，Scene 与原生客户区之间的亚像素缝隙
+            // 会透出这个画刷 → 就是用户看到的四周 1-2px 白框。深色后缝隙不可见。
+            try {
+                long darkBrush = Gdi32Ex.INSTANCE.CreateSolidBrush(BRUSH_DARK);
+                if (darkBrush != 0L) {
+                    User32Ex.INSTANCE.SetClassLongPtr(h, GCLP_HBRBACKGROUND, darkBrush);
+                    logDebug("class HBRBACKGROUND set to dark brush 0x" + Long.toHexString(darkBrush));
+                }
+            } catch (Throwable t) {
+                logDebug("HBRBACKGROUND swap failed (fallback: white gaps may show): " + t);
+            }
 
             WndProc cb = new WndProc(h, oldProc, border, titleBarH, rightButtonsW);
             Pointer tramp = CallbackReference.getFunctionPointer(cb);

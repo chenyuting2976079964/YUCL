@@ -94,6 +94,11 @@ extends Application {
         this.stage = s;
         this.outScale = Math.max(1.0, javafx.stage.Screen.getPrimary().getOutputScaleY());
         s.initStyle(javafx.stage.StageStyle.UNDECORATED);
+        // 四周白框根因：Win32 窗口类的背景画刷默认白色（GetSysColorBrush(COL_WINDOW)）。
+        // undecorated 窗口在 DPI 取整/最大化时 Scene 与原生客户区之间出现亚像素缝隙，
+        // 缝隙透出的是这个原生背景而非 Scene fill。本 OpenJFX 构建没有 Stage.setBackground/
+        // setStyle API，改由 NativeWindow.install() 里 SetClassLongPtr(GCLP_HBRBACKGROUND)
+        // 把原生背景画刷染成深色（#0a0b0f，与应用主色一致）。
         s.setTitle("YUCL \u00b7 AI \u77ed\u89c6\u9891\u5de5\u4f5c\u5ba4");
         s.setMinWidth(960.0 / this.outScale);
         s.setMinHeight(600.0 / this.outScale);
