@@ -300,7 +300,10 @@ public final class FfmpegCore {
                 }
                 out = sb.toString().trim();
             }
-            p.waitFor(30L, TimeUnit.SECONDS);
+            if (!p.waitFor(30L, TimeUnit.SECONDS)) {
+                // ffprobe 卡死（坏文件/被杀环境）时强杀，避免每次调用都泄漏一个子进程
+                p.destroyForcibly();
+            }
             String first = out.split("\n", 2)[0].trim();
             return first.isEmpty() ? null : Double.valueOf(Double.parseDouble(first));
         }
