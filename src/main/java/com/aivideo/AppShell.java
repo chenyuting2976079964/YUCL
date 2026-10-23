@@ -255,12 +255,21 @@ extends Application {
         });
         bClose.setOnMouseClicked(e -> this.doExit());
         titleBar.getChildren().addAll(tbIcon, tbTitle, tbSpacer, bSet, bMin, bMax, bClose);
-        double[] drag = new double[2];
+        double[] drag = new double[4];
         titleBar.setOnMousePressed(ev -> {
             drag[0] = ev.getScreenX() - s.getX();
             drag[1] = ev.getScreenY() - s.getY();
+            drag[2] = ev.getScreenX();
+            drag[3] = ev.getScreenY();
         });
         titleBar.setOnMouseDragged(ev -> {
+            // 纯 JavaFX 兜底路径（原生 NCHITTEST 未生效时才走到这里：原生循环已接管时
+            // Glass 不再投递 mouseDragged，两个机制不会打架）。
+            // 位移阈值 4px：按标题栏/按钮时手抖 1-3px 再松手 = 点击，不是拖动——
+            // 无阈值的话，点最小化/设置等按钮的瞬间窗口会跟着抖 1-3px。
+            if (Math.abs(ev.getScreenX() - drag[2]) + Math.abs(ev.getScreenY() - drag[3]) < 4.0) {
+                return;
+            }
             s.setX(ev.getScreenX() - drag[0]);
             s.setY(ev.getScreenY() - drag[1]);
         });

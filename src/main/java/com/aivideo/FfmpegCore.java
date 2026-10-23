@@ -109,6 +109,25 @@ public final class FfmpegCore {
         return m;
     }
 
+    /** 语音文件路径解析：原值存在（绝对路径）直接用；否则取最后一段文件名到
+     *  语音库目录（voices/）里找——覆盖两种失效场景：
+     *  ① 请求体里传的是裸文件名（UI 正常传绝对路径，但 API 直接调用/重试老任务时可能带裸名）；
+     *  ② 备份恢复到别的机器/安装目录后，旧绝对路径失效（与图片的 stale-path 兜底同一原则）。
+     *  找不到返回 null。 */
+    public static String resolveVoicePath(String p) {
+        if (p == null || p.isEmpty()) {
+            return null;
+        }
+        if (Files.exists(Paths.get(p, new String[0]), new LinkOption[0])) {
+            return p;
+        }
+        String n = p.replace('\\', '/');
+        int i = n.lastIndexOf('/');
+        n = i >= 0 ? n.substring(i + 1) : n;
+        Path q = DataDirs.mediaDir("voices").resolve(n);
+        return Files.exists(q, new LinkOption[0]) ? q.toString() : null;
+    }
+
     public static String resolveLocalAudio(int i, String role, Map<String, String> localAudio) {
         if (localAudio == null || localAudio.isEmpty()) {
             return null;
@@ -122,8 +141,9 @@ public final class FfmpegCore {
         for (String string : keys) {
             String p = (String) localAudio.get(string);
             if (p == null || p.isEmpty()) continue;
-            if (Files.exists(Paths.get(p, new String[0]), new LinkOption[0])) {
-                return p;
+            String r = FfmpegCore.resolveVoicePath(p);
+            if (r != null) {
+                return r;
             }
             System.err.println("[ai-video] local_audio[" + string + "] not found on disk: " + p);
         }

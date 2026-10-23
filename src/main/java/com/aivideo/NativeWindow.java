@@ -460,6 +460,12 @@ public final class NativeWindow implements AutoCloseable {
     }
 
     private static void logDebug(String msg) {
+        // 生产构建默认关闭：activate/NC 消息高频触发 applyDwmColors，
+        // 无门控会把 native-debug.log 写爆（IO 抖动 + 日志膨胀，实测 791 行/小时）。
+        // 需要排查窗口层时以 -Dyucl.debug=true 启动即可恢复全量日志。
+        if (!Boolean.getBoolean("yucl.debug")) {
+            return;
+        }
         try {
             java.nio.file.Path d = com.aivideo.DataDirs.dataDir();
             java.nio.file.Files.createDirectories(d);

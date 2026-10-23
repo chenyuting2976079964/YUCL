@@ -181,13 +181,15 @@ public final class CharBgComposer {
             String audioSrc = "none";
             if (doTts) {
                 String loc;
-                String cv;
-                String string2 = cv = chName.isEmpty() || charVoices == null ? null : charVoices.get(chName);
-                if (cv != null && !cv.isEmpty() && !cv.startsWith("tts:") && Files.exists(Paths.get(cv, new String[0]), new LinkOption[0])) {
-                    audio = cv;
+                String cv = chName.isEmpty() || charVoices == null ? null : charVoices.get(chName);
+                String cvResolved = cv == null || cv.isEmpty() || cv.startsWith("tts:") ? null : FfmpegCore.resolveVoicePath(cv);
+                if (cvResolved != null) {
+                    audio = cvResolved;
                     audioSrc = "local";
                 } else if (cv != null && cv.startsWith("tts:")) {
                     voiceWarnings.add("\u7b2c" + n1 + "\u955c\uff08" + (chName.isEmpty() ? "\u9ed8\u8ba4" : chName) + "\uff09\uff1a\u8be5\u4eba\u7269\u97f3\u6e90\u9009\u4e86\u7cfb\u7edf\u97f3\u8272 " + cv.substring(4) + "\uff0c\u672c\u6784\u5efa\u65e0 TTS\uff0c\u5df2\u7528\u9ed8\u8ba4\u58f0\u6e90");
+                } else if (cv != null && !cv.isEmpty()) {
+                    voiceWarnings.add("\u7b2c" + n1 + "\u955c\uff08" + (chName.isEmpty() ? "\u9ed8\u8ba4" : chName) + "\uff09\uff1a\u8bed\u97f3\u6587\u4ef6\u300c" + cv + "\u300d\u5728\u8bed\u97f3\u5e93\u672a\u627e\u5230\uff0c\u5df2\u7528\u9ed8\u8ba4\u58f0\u6e90");
                 }
                 if (audio == null && (loc = FfmpegCore.resolveLocalAudio(i, chName.isEmpty() ? null : chName, localAudio)) != null) {
                     audio = loc;
