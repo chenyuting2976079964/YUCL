@@ -112,6 +112,11 @@ public final class NativeWindow implements AutoCloseable {
     private static final int WM_ACTIVATE = 0x0006;
     private static final int WM_SETFOCUS = 0x0001;
     private static final int WM_KILLFOCUS = 0x0008;
+    /** 非客户区激活：DWM 失焦时会重置边框颜色（= 失焦白框的触发点） */
+    private static final int WM_NCACTIVATE = 0x0086;
+    /** 非客户区绘制：客户区铺满窗口后 NC 区为空，系统仍会按 WS_THICKFRAME
+     *  重画 3D 斜面边框（激活/失焦切换时最明显）→ 必须吞掉，不能转发 */
+    private static final int WM_NCPAINT = 0x0085;
     /** 最大化尺寸/位置协商：客户区=整个窗口时，系统仍按"带边框"给最大化区域，
      *  窗口会比屏幕大一圈（实测 -10,-10→2570,1610），必须自己钳到显示器工作区 */
     private static final int WM_GETMINMAXINFO = 0x0024;
@@ -126,6 +131,14 @@ public final class NativeWindow implements AutoCloseable {
     private static final int HTBOTTOM = 15;
     private static final int HTBOTTOMLEFT = 16;
     private static final int HTBOTTOMRIGHT = 17;
+
+    /** 激活切换后的延迟重钉执行器（DWM 异步重绘会把边框色回退成系统默认） */
+    private static final java.util.concurrent.ScheduledExecutorService REAPPLY =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "dwm-border-reapply");
+                t.setDaemon(true);
+                return t;
+            });
 
     /** 子类化回调（必须强引用：JNA callback map 为弱引用） */
     private static final class WndProc implements WinUser.WindowProc {
@@ -160,6 +173,12 @@ public final class NativeWindow implements AutoCloseable {
                     // 缩放仍由 NCHITTEST 的 HT* 边区 + WS_THICKFRAME 驱动框架 modal 循环。
                     return new WinDef.LRESULT(0);
 
+                // 吞掉非客户区绘制：客户区=整个窗口后这里本不该有任何像素，
+                // 但系统在激活/失焦切换时会重画 3D 斜面边框（浅灰 8px + 白/灰 1px），
+                // 转发给 Glass/DefWindowProc 就等于让它画 → 这就是"点别的窗口就出白边"。
+                case WM_NCPAINT:
+                    return new WinDef.LRESULT(0);
+
                 case WM_NCHITTEST: {
                     WinDef.LRESULT r = u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
                     if (r.intValue() != HTCLIENT) {
@@ -171,14 +190,38 @@ public final class NativeWindow implements AutoCloseable {
                     return hitTest(u32, h, lp);
                 }
 
-                // 激活状态变化：重新钉住 DWM 边框抑制（COLOR_NONE）+ 圆角等属性（幂等），
-                // 防止 DWM 在状态切换时恢复默认边框。处理完必须转发给 Glass
-                //（它靠这些消息维护自身激活/焦点状态）。
+                // 激活状态变化：DWM 会在切换时把边框颜色重置为系统默认（失焦白框），
+                // 必须在消息处理【之后】再钉一次（顺序颠倒等于钉在旧状态上），
+                // 并补一次 ~80ms 的延迟重钉，防止 DWM 异步重绘时又回退。
                 case WM_ACTIVATE:
                 case WM_SETFOCUS:
-                case WM_KILLFOCUS:
+                case WM_KILLFOCUS: {
+                    WinDef.LRESULT rr = u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
                     applyDwmColors(h);
-                    return u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
+                    REAPPLY.schedule(() -> {
+                        try {
+                            applyDwmColors(h);
+                        } catch (Throwable ignored) {
+                        }
+                    }, 80, java.util.concurrent.TimeUnit.MILLISECONDS);
+                    return rr;
+                }
+
+                // WM_NCACTIVATE 不能转发：DefWindowProc 收到后会直接调用内部 NC 绘制，
+                // 按 WS_THICKFRAME 画一圈 Win32 3D 斜面边框（高光 #e3e3e3/#ffffff +
+                // 面 #b4b4b4 + 阴影 #a0a0a0/#696969，共 10px），盖在客户区最外圈 ——
+                // 这就是"点别的窗口/切回来自动出现白边"的真正来源。
+                // 直接返回 TRUE 阻止重画；Glass 的激活/焦点状态走 WM_ACTIVATE，不受影响。
+                case WM_NCACTIVATE: {
+                    applyDwmColors(h);
+                    REAPPLY.schedule(() -> {
+                        try {
+                            applyDwmColors(h);
+                        } catch (Throwable ignored) {
+                        }
+                    }, 80, java.util.concurrent.TimeUnit.MILLISECONDS);
+                    return new WinDef.LRESULT(1);
+                }
 
                 // 最大化区域钳到显示器工作区（客户区=整个窗口带来的必然副作用）
                 case WM_GETMINMAXINFO: {

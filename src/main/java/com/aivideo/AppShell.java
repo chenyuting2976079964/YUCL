@@ -202,6 +202,16 @@ extends Application {
                 }
             });
         });
+        javafx.scene.layout.StackPane bMin = AppShell.winBtn(34.0, "transparent");
+        javafx.scene.layout.Region minBar = new javafx.scene.layout.Region();
+        minBar.setPrefSize(11.0, 1.6);
+        minBar.setMinSize(11.0, 1.6);
+        minBar.setMaxSize(11.0, 1.6);
+        minBar.setStyle("-fx-background-color:#c2c8d6;-fx-background-radius:1;");
+        bMin.getChildren().add(minBar);
+        AppShell.wireHover(bMin, BTN_NORMAL, BTN_HOVER, BTN_PRESS);
+        javafx.scene.control.Tooltip.install(bMin, new javafx.scene.control.Tooltip("最小化"));
+        bMin.setOnMouseClicked(e -> s.setIconified(true));
         javafx.scene.layout.StackPane bMax = AppShell.winBtn(34.0, "transparent");
         final javafx.scene.canvas.Canvas mxIconMax = AppShell.maxIcon();
         final javafx.scene.canvas.Canvas mxIconRest = AppShell.restoreIcon();
@@ -244,7 +254,7 @@ extends Application {
             cl1.setStroke(xIdle); cl2.setStroke(xIdle);
         });
         bClose.setOnMouseClicked(e -> this.doExit());
-        titleBar.getChildren().addAll(tbIcon, tbTitle, tbSpacer, bSet, bMax, bClose);
+        titleBar.getChildren().addAll(tbIcon, tbTitle, tbSpacer, bSet, bMin, bMax, bClose);
         double[] drag = new double[2];
         titleBar.setOnMousePressed(ev -> {
             drag[0] = ev.getScreenX() - s.getX();
@@ -317,10 +327,10 @@ extends Application {
                     try {
                         // 原生框架级缩放：NCA 边框环 border px（物理）；
                         // 标题栏带高度 = 标题栏逻辑 40px × outScale；
-                        // 右侧按钮区宽度 = 3×36 按钮 + 间距 + 右 padding（约 150 逻辑 px）
+                        // 右侧按钮区宽度 = 4×34 按钮 + 间距 + 右 padding（约 184 逻辑 px）
                         int border = (int) (6 * outScale);
                         int titleBarH = (int) (40 * outScale);
-                        int rightButtonsW = (int) (150 * outScale);
+                        int rightButtonsW = (int) (184 * outScale);
                         NativeWindow nw = NativeWindow.install("YUCL \u00b7 AI \u77ed\u89c6\u9891\u5de5\u4f5c\u5ba4", border, titleBarH, rightButtonsW);
                         if (nw != null) {
                             AppShell.this.nativeWindow = nw;
