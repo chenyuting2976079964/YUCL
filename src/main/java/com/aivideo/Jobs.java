@@ -222,15 +222,22 @@ public final class Jobs {
     }
 
     private static void deleteTree(Path root) throws IOException {
+        // 删除失败不再静默吞掉：Windows 下视频常被播放器/浏览器占用，
+        // 静默失败会让整棵 run 目录变成永久孤儿且无从排查；记录遗留路径供诊断
+        ArrayList<Path> left = new ArrayList<Path>();
         try (Stream<Path> walk = Files.walk(root, new FileVisitOption[0]);){
             walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.delete(p);
                 }
                 catch (IOException iOException) {
-                    // empty catch block
+                    left.add(p);
                 }
             });
+        }
+        if (!left.isEmpty()) {
+            System.err.println("[ai-video] deleteTree: " + left.size() + " 项删除失败（文件可能被占用）: "
+                    + left.subList(0, Math.min(5, left.size())) + " under " + root);
         }
     }
 }
