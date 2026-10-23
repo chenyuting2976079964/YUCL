@@ -39,6 +39,26 @@ public final class NativeWindow implements AutoCloseable {
         WinDef.LRESULT SetClassLongPtr(WinDef.HWND hWnd, int nIndex, long dwNewLong);
     }
 
+    /** WM_GETMINMAXINFO 结构体（JNA 5.14 未封装） */
+    public static class MINMAXINFO extends com.sun.jna.Structure {
+        public WinDef.POINT ptReserved = new WinDef.POINT();
+        public WinDef.POINT ptMaxSize = new WinDef.POINT();
+        public WinDef.POINT ptMaxPosition = new WinDef.POINT();
+        public WinDef.POINT ptMinTrackSize = new WinDef.POINT();
+        public WinDef.POINT ptMaxTrackSize = new WinDef.POINT();
+
+        public MINMAXINFO(Pointer p) {
+            super(p);
+            read();
+        }
+
+        @Override
+        protected java.util.List<String> getFieldOrder() {
+            return java.util.Arrays.asList("ptReserved", "ptMaxSize", "ptMaxPosition",
+                    "ptMinTrackSize", "ptMaxTrackSize");
+        }
+    }
+
     /** Gdi32：创建窗口类背景画刷（句柄返回原始 long，避免 jna WinDef.HANDLE 差异） */
     interface Gdi32Ex extends com.sun.jna.Library {
         Gdi32Ex INSTANCE = Native.load("gdi32", Gdi32Ex.class, W32APIOptions.DEFAULT_OPTIONS);
@@ -92,6 +112,9 @@ public final class NativeWindow implements AutoCloseable {
     private static final int WM_ACTIVATE = 0x0006;
     private static final int WM_SETFOCUS = 0x0001;
     private static final int WM_KILLFOCUS = 0x0008;
+    /** 最大化尺寸/位置协商：客户区=整个窗口时，系统仍按"带边框"给最大化区域，
+     *  窗口会比屏幕大一圈（实测 -10,-10→2570,1610），必须自己钳到显示器工作区 */
+    private static final int WM_GETMINMAXINFO = 0x0024;
 
     private static final int HTCLIENT = 1;
     private static final int HTCAPTION = 2;
@@ -156,6 +179,25 @@ public final class NativeWindow implements AutoCloseable {
                 case WM_KILLFOCUS:
                     applyDwmColors(h);
                     return u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
+
+                // 最大化区域钳到显示器工作区（客户区=整个窗口带来的必然副作用）
+                case WM_GETMINMAXINFO: {
+                    WinDef.LRESULT r = u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
+                    try {
+                        MINMAXINFO mm = new MINMAXINFO(new Pointer(lp.longValue()));
+                        WinUser.HMONITOR mon = u32.MonitorFromWindow(h, WinUser.MONITOR_DEFAULTTONEAREST);
+                        WinUser.MONITORINFO mi = new WinUser.MONITORINFO();
+                        if (u32.GetMonitorInfo(mon, mi).booleanValue()) {
+                            mm.ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+                            mm.ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
+                            mm.ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+                            mm.ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+                            mm.write();
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    return r;
+                }
 
                 default:
                     return u32.CallWindowProc(oldProcPtr, h, msg, wp, lp);
@@ -275,6 +317,15 @@ public final class NativeWindow implements AutoCloseable {
             WndProc cb = new WndProc(h, oldProc, border, titleBarH, rightButtonsW);
             Pointer tramp = CallbackReference.getFunctionPointer(cb);
             u32.SetWindowLongPtr(h, GWL_WNDPROC, tramp);
+            // 关键一步：强制框架重算非客户区。子类化发生在窗口创建之后，
+            // 创建时 Glass 已按带 WS_THICKFRAME 的窗口算好了 NC 边框区（2px），
+            // 不做这一步，WM_NCCALCSIZE 永远轮不到我们的实现（client 仍比窗口小 2px），
+            // DWM 就会在那 2px 里画浅色边框 —— 就是用户看到的"白边"。
+            // SWP_FRAMECHANGED 触发 WM_NCCALCSIZE，本类返回 0 → 客户区 = 整个窗口。
+            u32.SetWindowPos(h, null, 0, 0, 0, 0,
+                    WinUser.SWP_NOMOVE | WinUser.SWP_NOSIZE | WinUser.SWP_NOZORDER
+                            | WinUser.SWP_NOACTIVATE | WinUser.SWP_FRAMECHANGED);
+            logDebug("install: frame recalculated (SWP_FRAMECHANGED) after subclass");
             return new NativeWindow(h, oldProc, cb, tramp);
         } catch (Throwable t) {
             logDebug("install error: " + t + "\n" + stackTrace(t));
@@ -339,8 +390,7 @@ public final class NativeWindow implements AutoCloseable {
             com.sun.jna.Memory border = new com.sun.jna.Memory(4);
             border.setInt(0, DWMWA_COLOR_NONE); // 4294967294：抑制 DWM 边框线（dwmapi.h DWMWA_COLOR_NONE）
             int hrBorder = DwmApi.INSTANCE.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, border, 4);
-            logDebug("DWM applyDwmColors: BORDER=COLOR_NONE(0x" + Integer.toHexString(DWMWA_COLOR_NONE)
-                    + ") hr=0x" + Integer.toHexString(hrBorder));
+            logDebug("DWM applyDwmColors: BORDER=COLOR_NONE(4294967294) hr=0x" + Integer.toHexString(hrBorder));
             // caption（undecorated 窗口不可见，仅防御）染深色；COLOR_NONE 语义未定义于 caption，勿混用
             com.sun.jna.Memory caption = new com.sun.jna.Memory(4);
             caption.setInt(0, DWM_COLOR_DARK);

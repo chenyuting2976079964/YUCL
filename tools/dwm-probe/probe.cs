@@ -29,6 +29,7 @@ class Probe
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hp, uint flags);
     [DllImport("user32.dll")] static extern int ShowWindow(IntPtr h, int cmd);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int val, int cb);
+    [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")] static extern int DwmGetAttrRect(IntPtr h, int attr, ref RECT r, int cb);
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int cb);
     [StructLayout(LayoutKind.Sequential)]
     struct MARGINS { public int cxLeft, cxRight, cxTop, cxBottom; }
@@ -91,6 +92,8 @@ class Probe
         return true;
     }
 
+    static string GetWindowRectStr(IntPtr h) { RECT r; GetWindowRect(h, out r); return r.left + "," + r.top + " -> " + r.right + "," + r.bottom; }
+
     static int Run()
     {
         foundH = IntPtr.Zero; yuclCount = 0;
@@ -105,6 +108,14 @@ class Probe
         int corner = -1;
         try { corner = -1; DwmGetWindowAttribute(h, 33, out corner, 4); } catch { }
         Console.WriteLine("DWM corner pref attr33 readback = " + corner + " (0=default 2=round 3=roundsmall; -1=read failed)");
+        RECT fbr = new RECT();
+        int hrF = DwmGetAttrRect(h, 9, ref fbr, 16);
+        Console.WriteLine("DWMWA_EXTENDED_FRAME_BOUNDS hr=0x" + hrF.ToString("X")
+            + " frame=" + fbr.left + "," + fbr.top + " -> " + fbr.right + "," + fbr.bottom
+            + " (GetWindowRect = " + GetWindowRectStr(h) + ")");
+        int thick = 0;
+        int hrT = DwmGetWindowAttribute(h, 37, out thick, 4);
+        Console.WriteLine("DWMWA_VISIBLE_FRAME_BORDER_THICKNESS hr=0x" + hrT.ToString("X") + " thickness=" + thick);
         RECT rc; GetWindowRect(h, out rc);
         Console.WriteLine("rect virtual px: " + rc.left + "," + rc.top + " -> " + rc.right + "," + rc.bottom + " (" + (rc.right - rc.left) + "x" + (rc.bottom - rc.top) + ")");
 
