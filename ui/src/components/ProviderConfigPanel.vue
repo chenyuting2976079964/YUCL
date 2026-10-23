@@ -44,7 +44,7 @@
         </div>
         <div class="status">{{ status }}</div>
         <div style="font-size:11px;color:var(--dim2);margin-top:8px;line-height:1.6">
-          生图模型通用 OpenAI 兼容服务（/images/generations）；视频模型仅 Agnes 协议网关可用，其他公司请用「本地合成」引擎。<br>
+          生图模型走通用 OpenAI 兼容接口（/images/generations）；视频生成需要供应商支持「提交+轮询」协议，不支持的供应商请为该镜头选择「本地合成」引擎。<br>
           API Key 只保存在本机文件（YUCL 数据目录下的 provider-config.json），不会上传任何地方。
         </div>
       </div>

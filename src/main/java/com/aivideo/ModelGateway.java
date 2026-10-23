@@ -111,7 +111,7 @@ public final class ModelGateway {
         if (eps.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
             r.put("ok", false);
-            r.put("reason", "no Agnes credentials");
+            r.put("reason", "缺少模型凭据");
             r.put("hint", "\u5728 config.yaml \u7684 custom_providers \u52a0\u4e00\u4e2a agnes \u6761\u76ee\uff08api_key + base_url\uff09\uff0c\u6216\u8bbe\u73af\u5883\u53d8\u91cf AGNES_API_KEY / AGNES_BASE_URL");
             return r;
         }
@@ -140,7 +140,7 @@ public final class ModelGateway {
         }
         LinkedHashMap<String, Object> r2 = new LinkedHashMap<String, Object>();
         r2.put("ok", false);
-        r2.put("reason", lastRejected.isEmpty() ? "cannot reach Agnes gateway with stored keys" : lastRejected);
+        r2.put("reason", lastRejected.isEmpty() ? "无法连接内置模型网关（凭据已存）" : lastRejected);
         r2.put("endpoints", eps.size());
         r2.put("hint", "\u68c0\u67e5\u7f51\u7edc\uff0c\u6216\u5230 platform.agnes-ai.com \u6362\u4e00\u4e2a\u65b0 key");
         return r2;
@@ -197,7 +197,7 @@ public final class ModelGateway {
     public static Map<String, Object> providerStatus() {
         Map<String, Object> p = Providers.active();
         LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
-        out.put("provider", Providers.str(p, "name"));
+        out.put("provider", Providers.displayName(p));
         out.put("provider_id", Providers.str(p, "id"));
         List<String[]> eps = ModelGateway.providerEndpoints();
         if (eps.isEmpty()) {
@@ -238,7 +238,7 @@ public final class ModelGateway {
         if (prompt.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
             r.put("ok", false);
-            r.put("error", "agnesa: image prompt is empty");
+            r.put("error", "图像提示词为空");
             r.put("stage", "prompt");
             return r;
         }
@@ -275,19 +275,19 @@ public final class ModelGateway {
                     body.put("size", size);
                 }
                 if ((r = (http = ModelGateway.newClient(180)).send(HttpRequest.newBuilder(URI.create(host + "/v1/images/generations")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(120L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() >= 400) {
-                    lastErr = "Agnes image rejected (HTTP " + r.statusCode() + "): " + r.body().substring(0, Math.min(300, r.body().length()));
+                    lastErr = "图像模型服务拒绝（HTTP " + r.statusCode() + "): " + r.body().substring(0, Math.min(300, r.body().length()));
                     continue;
                 }
                 JsonNode cj = JSON.readTree(r.body());
                 JsonNode data = cj.get("data");
                 String string2 = url = data != null && data.size() > 0 ? data.get(0).path("url").asText("") : "";
                 if (url.isEmpty()) {
-                    lastErr = "Agnes image returned no url: " + r.body().substring(0, Math.min(200, r.body().length()));
+                    lastErr = "图像模型服务未返回图片地址: " + r.body().substring(0, Math.min(200, r.body().length()));
                     continue;
                 }
                 HttpResponse<byte[]> dr = http.send(HttpRequest.newBuilder(URI.create(url)).GET().timeout(Duration.ofSeconds(60L)).build(), HttpResponse.BodyHandlers.ofByteArray());
                 if (dr.statusCode() >= 400) {
-                    lastErr = "Agnes image download failed (HTTP " + dr.statusCode() + ")";
+                    lastErr = "图像下载失败（HTTP " + dr.statusCode() + ")";
                     continue;
                 }
                 byte[] bytes = dr.body();
@@ -306,12 +306,12 @@ public final class ModelGateway {
                 return out;
             }
             catch (Exception exc) {
-                lastErr = "Agnes image error: " + exc;
+                lastErr = "图像模型异常: " + exc;
             }
         }
         LinkedHashMap<String, Object> fin = new LinkedHashMap<String, Object>();
         fin.put("ok", false);
-        fin.put("error", ((String)lastErr).isEmpty() ? "Agnes image generation failed" : lastErr);
+        fin.put("error", ((String)lastErr).isEmpty() ? "图像模型生成失败" : lastErr);
         fin.put("stage", "agnesa-image");
         return fin;
     }
@@ -381,17 +381,17 @@ public final class ModelGateway {
                         body.set("audios", JSON.valueToTree(auds.subList(0, Math.min(3, auds.size()))));
                     }
                     if ((cr = (http = ModelGateway.newClient(60)).send(HttpRequest.newBuilder(URI.create(host + "/v1/videos")).header("Authorization", "Bearer " + ep[1]).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).timeout(Duration.ofSeconds(60L)).build(), HttpResponse.BodyHandlers.ofString())).statusCode() == 503 && cr.body().contains("queue_full")) {
-                        lastErr = "Agnes free queue is full (503 video_queue_full)";
+                        lastErr = "模型服务队列已满（503）";
                         continue;
                     }
                     if (cr.statusCode() >= 400) {
-                        lastErr = "Agnes rejected request (HTTP " + cr.statusCode() + "): " + cr.body().substring(0, Math.min(300, cr.body().length()));
+                        lastErr = "模型服务拒绝请求（HTTP " + cr.statusCode() + "): " + cr.body().substring(0, Math.min(300, cr.body().length()));
                         continue;
                     }
                     JsonNode cj = JSON.readTree(cr.body());
                     String vid = ModelGateway.firstNonBlank(cj.path("video_id").asText(""), cj.path("id").asText(""), cj.path("data").path("video_id").asText(""));
                     if (vid.isEmpty()) {
-                        lastErr = "Agnes submit returned no video_id: " + cr.body().substring(0, Math.min(200, cr.body().length()));
+                        lastErr = "模型服务未返回任务ID: " + cr.body().substring(0, Math.min(200, cr.body().length()));
                         continue;
                     }
                     long deadline = System.nanoTime() / 1000000L + (long)(pollDeadlineS * 1000.0);
@@ -413,16 +413,16 @@ public final class ModelGateway {
                         Thread.sleep(1500L);
                     }
                     if (!List.of("completed", "succeeded", "success").contains(lastStatus)) {
-                        lastErr = "Agnes job ended status='" + lastStatus + "' (id=" + vid + ")";
+                        lastErr = "模型任务结束 status='" + lastStatus + "' (id=" + vid + ")";
                         continue;
                     }
                     if (url == null) {
-                        lastErr = "Agnes job " + vid + " completed but no mp4 url found";
+                        lastErr = "模型任务 " + vid + " 完成但未找到视频地址";
                         continue;
                     }
                     HttpResponse<byte[]> dr = http.send(HttpRequest.newBuilder(URI.create(url)).GET().timeout(Duration.ofSeconds(300L)).build(), HttpResponse.BodyHandlers.ofByteArray());
                     if (dr.statusCode() >= 400) {
-                        lastErr = "Agnes mp4 download failed (HTTP " + dr.statusCode() + ")";
+                        lastErr = "视频下载失败（HTTP " + dr.statusCode() + ")";
                         continue;
                     }
                     byte[] bytes = dr.body();
@@ -446,7 +446,7 @@ public final class ModelGateway {
                     lastErr = "interrupted";
                 }
                 catch (Exception exc) {
-                    lastErr = "Agnes error: " + exc;
+                    lastErr = "模型服务异常: " + exc;
                 }
             }
             if (attempt >= queueRetries) continue;
@@ -464,7 +464,7 @@ public final class ModelGateway {
         }
         LinkedHashMap<String, Object> fin = new LinkedHashMap<String, Object>();
         fin.put("ok", false);
-        fin.put("error", ((String)lastErr).isEmpty() ? "Agnes generation failed" : lastErr);
+        fin.put("error", ((String)lastErr).isEmpty() ? "模型生成失败" : lastErr);
         fin.put("stage", "agnesa");
         return fin;
     }

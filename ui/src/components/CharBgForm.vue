@@ -40,7 +40,7 @@
             <option :value="0">{{ t("none") }}</option>
             <option v-for="b in bgs" :key="b.id" :value="b.id">{{ b.name }}</option>
           </select>
-          <input v-model.number="sh.seconds" type="number" min="3" max="12" :title="t('duration')">
+          <input v-model.number="sh.seconds" type="number" min="4" max="12" :title="t('duration')">
         </div>
         <div class="srow"><input class="full" v-model="sh.text" :placeholder="t('action_ph')"></div>
         <div class="srow">
@@ -72,13 +72,13 @@
         <div class="field">
           <label class="lbl">{{ t("video_model") }} <span class="hint">ai 引擎</span></label>
           <select v-model="videoModel">
-            <option v-for="m in videoModelList" :key="m" :value="m">{{ m }}</option>
+            <option v-for="m in videoModelList" :key="m" :value="m">{{ m || t("default_model") }}</option>
           </select>
         </div>
         <div class="field">
           <label class="lbl">{{ t("img_model") }}</label>
           <select v-model="imgModel">
-            <option v-for="m in imgModelList" :key="m" :value="m">{{ m }}</option>
+            <option v-for="m in imgModelList" :key="m" :value="m">{{ m || t("default_model") }}</option>
           </select>
         </div>
       </div>
@@ -163,13 +163,14 @@ const error = ref("");
 
 function provLabel(p: Provider) {
   let s = p.name || p.id;
-  if (p.builtin) s += "（内置）";
   if (!p.has_key) s += "（未填 Key）";
   return s;
 }
 const activeProv = computed(() => store.providers.find(p => p.id === provId.value) || store.providers.find(p => p.id === store.activeProvider));
-const videoModelList = computed(() => activeProv.value?.video_models || []);
-const imgModelList = computed(() => activeProv.value?.image_models || []);
+// 模型信息显示策略：用户配置过供应商才显示具体模型名；未配置时只留"系统默认模型"通用项（后端自行取默认模型）
+const configured = computed(() => !!store.options?.providers_configured);
+const videoModelList = computed(() => configured.value ? (activeProv.value?.video_models || []) : [""]);
+const imgModelList = computed(() => configured.value ? (activeProv.value?.image_models || []) : [""]);
 
 // 步骤指示器：①人物图 ②场景图 ③内容描述 ④生成视频
 const steps = computed(() => [
@@ -186,6 +187,7 @@ watch(() => [store.options, store.activeProvider, provId.value] as const, () => 
   const o = store.options;
   if (!o) return;
   if (!provId.value || !store.providers.some(p => p.id === provId.value)) provId.value = o.active_provider_id || "";
+  if (!o.providers_configured) { videoModel.value = ""; imgModel.value = ""; return; } // 未配置：不显示模型信息，后端取系统默认
   const p = store.providers.find(x => x.id === provId.value);
   if (p?.default_video_model && !videoModelList.value.includes(videoModel.value)) videoModel.value = p.default_video_model;
   if (!videoModel.value && o.default_video_model) videoModel.value = o.default_video_model;
@@ -279,7 +281,7 @@ async function submit() {
   if (!shotsP.length) { error.value = "✕ 请至少添加一个镜头"; return; }
   const anyAi = shots.value.some(sh => sh.engine === "ai");
   if (anyAi && !charsP.concat(bgsP).some(x => x.url)) {
-    error.value = "✕ Agnes AI 引擎需要可联网参考图：请用「提示词」生成图片（得到公网 URL），或把该镜头改为「本地合成」";
+    error.value = "✕ AI 引擎需要可联网参考图：请用「提示词」生成图片（得到公网 URL），或把该镜头改为「本地合成」";
     return;
   }
   const charVoices: Record<string, string> = {};
@@ -300,7 +302,7 @@ async function submit() {
   };
 
   submitting.value = true;
-  status.value = anyAi ? "启动任务（Agnes 逐镜生成 + 合成，免费档可能排队 1–3 分钟/镜）…" : "启动任务（本地合成：Ken-Burns + 人物叠加 + 配音）…";
+  status.value = anyAi ? "启动任务（AI 模型逐镜生成 + 合成，高峰期可能排队 1–3 分钟/镜）…" : "启动任务（本地合成：Ken-Burns + 人物叠加 + 配音）…";
   try {
     const j = await api.makeCharBg(body);
     if (j.ok && j.job_id) {

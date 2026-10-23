@@ -19,6 +19,7 @@
         </div>
         <div class="srow" style="margin-top:6px">
           <ProviderModelPicker :providers="store.providers" :active-provider="store.activeProvider"
+            :configured="!!store.options?.providers_configured"
             v-model:provider-id="prov" v-model:model="model" kind="text"
             prov-id="sc-prov" model-id="sc-model" :placeholder="'（该供应商未配置文本模型，请填模型配置）'" />
         </div>

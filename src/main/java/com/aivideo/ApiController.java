@@ -171,14 +171,14 @@ public class ApiController {
         out.put("default_video_model", Providers.defaultVideoModel(Providers.active()));
         out.put("text_models", Providers.textModels(Providers.active()));
         out.put("default_text_model", Providers.defaultTextModel(Providers.active()));
-        out.put("active_provider", Providers.str(Providers.active(), "name"));
+        out.put("active_provider", Providers.displayName(Providers.active()));
         // 开放 harness：全部供应商（含内置），UI 生成表单可自选供应商与模型
         Map<String, Object> st = Providers.state();
         java.util.ArrayList<Map<String, Object>> pout = new java.util.ArrayList<>();
         for (Map<String, Object> pp : (java.util.List<Map<String, Object>>)st.get("providers")) {
             Map<String, Object> o2 = new java.util.LinkedHashMap<>();
             o2.put("id", String.valueOf(pp.get("id")));
-            o2.put("name", Providers.str(pp, "name"));
+            o2.put("name", Boolean.TRUE.equals(pp.get("builtin")) ? Providers.displayName(pp) : Providers.str(pp, "name"));
             o2.put("builtin", Boolean.TRUE.equals(pp.get("builtin")));
             o2.put("has_key", !Providers.str(pp, "api_key").isEmpty());
             o2.put("image_models", Providers.imageModels(pp));
@@ -190,6 +190,7 @@ public class ApiController {
             pout.add(o2);
         }
         out.put("providers", pout);
+        out.put("providers_configured", Providers.isUserConfigured());
         out.put("active_provider_id", String.valueOf(st.get("active")));
         // 本地判断（不发网络）：内置凭据是否可用。实时在线状态走 /agnesa-status，
         // 避免 /options 被 provider 探测阻塞（UI 启动重试循环会放大网络延迟）
@@ -208,6 +209,12 @@ public class ApiController {
         LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("ok", true);
         out.putAll(st);
+        // 内置条目显示名固定为通用名（厂商字样不落 UI，即使配置文件里存了旧名）
+        for (Map<String, Object> pp : (java.util.List<Map<String, Object>>)st.get("providers")) {
+            if (Boolean.TRUE.equals(pp.get("builtin"))) {
+                pp.put("name", Providers.displayName(pp));
+            }
+        }
         return out;
     }
 
@@ -258,7 +265,7 @@ public class ApiController {
         String base = String.valueOf(prov.getOrDefault("base_url", "")).trim();
         String key = String.valueOf(prov.getOrDefault("api_key", "")).trim();
         String builtinNote = "";
-        // 内置供应商（如 Agnes）的 key 不在 provider-config.json 里（在 config.yaml/env），
+        // 内置供应商的 key 不在 provider-config.json 里（在 config.yaml/env），
         // 卡片上 key 为空时回落到 ModelGateway 内置凭据，否则永远提示"需要 API Key"。
         if (base.isEmpty() || key.isEmpty()) {
             List<String[]> eps = ModelGateway.providerEndpoints();

@@ -31,6 +31,7 @@ export interface Options {
   default_image_model?: string;
   default_text_model?: string;
   providers: Provider[];
+  providers_configured?: boolean;
   active_provider_id?: string;
 }
 

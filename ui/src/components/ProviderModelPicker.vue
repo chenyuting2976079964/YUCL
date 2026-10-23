@@ -9,7 +9,7 @@
     <div class="field">
       <label class="lbl"><slot name="model-label">模型</slot></label>
       <select :id="modelId" :value="model" @change="onModelChange">
-        <option v-for="m in modelList" :key="m" :value="m">{{ m }}</option>
+        <option v-for="m in modelList" :key="m" :value="m">{{ m || "系统默认模型" }}</option>
         <option v-if="!modelList.length" value="">{{ placeholder }}</option>
       </select>
     </div>
@@ -30,6 +30,7 @@ const props = defineProps<{
   providerId: string;
   model: string;
   kind: "video" | "image" | "text";
+  configured?: boolean;
 }>();
 const emit = defineEmits<{
   (e: "update:providerId", v: string): void;
@@ -38,7 +39,7 @@ const emit = defineEmits<{
 
 function provLabel(p: Provider) {
   let s = p.name || p.id;
-  if (p.builtin) s += "（内置）";
+  if (p.builtin && !s.includes("内置")) s += "（内置）";
   if (!p.has_key) s += "（未填 Key）";
   return s;
 }
@@ -46,6 +47,8 @@ function providerOf(id: string) {
   return props.providers.find(p => p.id === id) || undefined;
 }
 const modelList = computed(() => {
+  // 未配置供应商时只显示通用"系统默认模型"，不暴露具体模型名（厂商标识）
+  if (props.configured === false) return [""];
   const p = providerOf(props.providerId);
   if (!p) return [];
   const pAny = p as unknown as Record<string, string[] | undefined>;

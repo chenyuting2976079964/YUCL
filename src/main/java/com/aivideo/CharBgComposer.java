@@ -216,7 +216,10 @@ public final class CharBgComposer {
                     who = ((String)who).replaceAll("^\u3001|\u3001$", "").isEmpty() ? "the character" : who;
                     String prompt = styleHint + ". Scene: " + text + ". Character(s): " + (String)who + ". The reference images are the character(s) first, the background last. Keep each character's appearance consistent across the clip.";
                     List<String> list = List.of();
-                    String string3 = model == null || model.isEmpty() ? "agnes-video-2.5-flash" : model;
+                    String string3 = model == null || model.isEmpty() ? Providers.defaultVideoModel(Providers.byid(providerId)) : model;
+                    if (string3 == null || string3.isEmpty()) {
+                        string3 = "agnes-video-2.5-flash";
+                    }
                     Map<String, Object> gen = ModelGateway.generate(prompt, refs, list, string3, sec, ratio, runDir.toString(), pollDeadlineS, queueRetries, progress::cancelled, providerId);
                     if (Boolean.TRUE.equals(gen.get("cancelled"))) {
                         return CharBgComposer.cancelledStage(n1 + 1, totalSteps);

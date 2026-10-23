@@ -127,10 +127,44 @@ public final class Providers {
         return (Map)((List)st.get("providers")).get(0);
     }
 
+    /** 是否"用户已配置过模型供应商"——决定 UI 是否显示具体模型信息：
+     *  全新安装（配置文件不存在或只有无 key 的内置条目）= 未配置，UI 全程通用话术、
+     *  不出现任何厂商标识与模型名；一旦填过 key 或加过自定义供应商 = 已配置，
+     *  表单里正常显示模型下拉。 */
+    public static boolean isUserConfigured() {
+        Path p = Providers.file();
+        if (!Files.exists(p, new LinkOption[0])) {
+            return false;
+        }
+        try {
+            JsonNode root = JSON.readTree(Files.readAllBytes(p));
+            for (JsonNode jsonNode : root.path("providers")) {
+                String id = jsonNode.path("id").asText("");
+                String key = jsonNode.path("api_key").asText("");
+                if (!key.isBlank() || !"agnes".equals(id)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** UI 显示名：内置供应商永远显示通用名（不落厂商字样），自定义供应商显示其自命名。 */
+    public static String displayName(Map<String, Object> p) {
+        if (p != null && Boolean.TRUE.equals(p.get("builtin"))) {
+            return "系统内置服务";
+        }
+        String n = p == null ? "" : String.valueOf(p.get("name"));
+        return n == null || n.isBlank() ? "自定义服务" : n;
+    }
+
     public static Map<String, Object> builtin() {
         LinkedHashMap<String, Object> b = new LinkedHashMap<String, Object>();
         b.put("id", "agnes");
-        b.put("name", "Agnes\uff08\u5185\u7f6e\uff09");
+        b.put("name", "系统内置服务");
         b.put("builtin", true);
         String base = "https://apihub.agnes-ai.com/v1";
         String key = "";

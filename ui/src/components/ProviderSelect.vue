@@ -18,7 +18,7 @@ const emit = defineEmits<{ (e: "update:modelValue", v: string): void }>();
 
 function label(p: Provider) {
   let s = p.name || p.id;
-  if (p.builtin) s += "（内置）";
+  if (p.builtin && !s.includes("内置")) s += "（内置）";
   if (!p.has_key) s += "（未填 Key）";
   return s;
 }
