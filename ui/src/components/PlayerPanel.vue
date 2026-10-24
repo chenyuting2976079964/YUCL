@@ -9,7 +9,7 @@
         </div>
         <video ref="vid" v-show="current" controls style="max-height:64vh"></video>
         <div class="meta">
-          <button v-if="current" type="button" id="player-open" class="chipbtn" title="窗口内播放器不支持 h264 时使用" @click="openInBrowser">⇕&emsp;在系统浏览器打开</button>
+          <button v-if="current" type="button" id="player-open" class="chipbtn" title="窗口内播放异常、或想用完整功能（字幕轨道等）时，用系统浏览器打开" @click="openInBrowser">⇕&emsp;在系统浏览器打开</button>
           <span v-if="playerHint" class="phint">{{ playerHint }}</span>
           <template v-if="meta">
             <span class="chip"><span class="k">时长</span><b>{{ meta.duration_s ?? "-" }}s</b></span>
@@ -64,7 +64,7 @@ function onSelect(jobId: string, m?: unknown) {
   activeJobId.value = jobId;
   playerError.value = "";
   meta.value = null;
-  const streamUri = baseUrl + "/stream?job_id=" + encodeURIComponent(jobId);
+  const streamUri = baseUrl + "/stream?job_id=" + encodeURIComponent(jobId) + "&win=1"; // win=1：有"窗口版"（探测编码）时优先给窗口能播的版本
   playUri(streamUri, m as MediaMeta | undefined);
   // 拉完整 meta（字幕/模型/声源/规格）：卡片只带 duration_s，缺了会误显示「字幕: 无」
   api.jobDetail(jobId).then(d => {

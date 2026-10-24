@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>窗口播放器探测 · YUCL</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+body{background:#0a0b0f;color:#e8ebf2;font:14px/1.55 "Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+ padding:28px 34px;font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif}
+h1{font-size:18px;margin-bottom:6px}
+.sub{color:#8f99ad;font-size:12.5px;margin-bottom:18px}
+.row{display:grid;grid-template-columns:220px 1fr 90px;gap:10px;align-items:center;padding:10px 12px;
+ border:1px solid rgba(255,255,255,.08);border-radius:10px;margin-bottom:8px;background:#12141b}
+.row .lbl{font-weight:600;font-size:13px}
+.row .st{font-size:12.5px;color:#8f99ad;text-align:right}
+video{width:180px;height:101px;background:#000;border-radius:6px}
+.ok{color:#4ade80;font-weight:700}
+.bad{color:#f87171;font-weight:700}
+.win{outline:2px solid #6366f1}
+#sum{margin-top:16px;font-size:13.5px;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 14px;background:#12141b;min-height:44px}
+.btns{margin-top:16px;display:flex;gap:10px}
+button{background:#6366f1;color:#fff;border:0;border-radius:8px;padding:9px 18px;font-size:13.5px;cursor:pointer}
+button.ghost{background:#1c2029;border:1px solid rgba(255,255,255,.12);color:#e8ebf2}
+#jobid{color:#8f99ad;font-size:12px}
+.busy{opacity:.55;pointer-events:none}
+</style>
+</head>
+<body>
+<h1>窗口内播放器探测</h1>
+<div class="sub">逐个测试窗口 WebEngine 能解码的视频编码 · 测出结果后，新视频会自动生成窗口可播版本</div>
+<div id="list"></div>
+<div id="sum">正在准备探测…（生成候选版本可能需要 10–60 秒）</div>
+<div class="btns">
+  <button id="again" class="ghost">重新测试</button>
+  <button id="back" class="ghost">返回应用</button>
+</div>
+<div id="jobid" style="margin-top:12px"></div>
+<script>
+const API = "/api/plugins/ai-video";
+const list = document.getElementById("list");
+const sum = document.getElementById("sum");
+const jobIdEl = document.getElementById("jobid");
+const qJob = new URLSearchParams(location.search).get("job") || "";
+let results = {};
+
+async function pickJob() {
+  if (qJob) return qJob;
+  const r = await (await fetch(API + "/recent")).json();
+  const jobs = (r.jobs || []).filter(j => j.has_video || j.video);
+  if (!jobs.length) throw new Error("暂无已完成的作品，先生成一个视频再探测");
+  return jobs[0].id;
+}
+
+function row(label) {
+  const d = document.createElement("div");
+  d.className = "row";
+  d.innerHTML = '<div class="lbl"></div><video muted playsinline preload="auto"></video><div class="st"></div>';
+  d.querySelector(".lbl").textContent = label;
+  list.appendChild(d);
+  return d;
+}
+
+function probeOne(d, url, codec) {
+  return new Promise(resolve => {
+    const v = d.querySelector("video");
+    const st = d.querySelector(".st");
+    st.textContent = "测试中…";
+    let done = false;
+    let timer = null;
+    const finish = (play) => {
+      if (done) return;
+      done = true;
+      results[codec] = play;
+      st.textContent = play ? "可播放" : "不可播放";
+      st.className = "st " + (play ? "ok" : "bad");
+      if (play) d.classList.add("win");
+      if (timer) clearInterval(timer);
+      timer = null;
+      v.removeAttribute("src");
+      v.load();
+      resolve(play); // 必须兑现 Promise，否则 await 永久挂起
+    };
+    v.addEventListener("error", () => finish(false));
+    v.src = url;
+    v.play().catch(() => {}); // 无头/受限环境 autoplay 可能被拦：主动启动，currentTime 才会推进
+    const t0 = Date.now();
+    // 轮询到 8 秒硬超时为止（不在 loadeddata 时提前停——readyState 2≠3，提前停会死锁）
+    timer = setInterval(() => {
+      const ok = v.readyState >= 3 && v.currentTime > 0.2 && !v.error;
+      if (ok) finish(true);
+      else if (Date.now() - t0 > 8000) finish(false);
+    }, 250);
+  });
+}
+
+async function run() {
+  results = {};
+  list.innerHTML = "";
+  sum.textContent = "正在生成候选版本（转码中，10–60 秒）…";
+  document.querySelectorAll("button").forEach(b => b.classList.add("busy"));
+  let job;
+  try { job = await pickJob(); } catch (e) {
+    sum.textContent = "⚠ " + e.message;
+    document.querySelectorAll("button").forEach(b => b.classList.remove("busy"));
+    return;
+  }
+  jobIdEl.textContent = "作品：" + job;
+  const r = await (await fetch(API + "/playtest/variants", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: job })
+  })).json();
+  if (!r.ok) {
+    sum.textContent = "⚠ " + (r.error || r.detail || "生成候选失败");
+    document.querySelectorAll("button").forEach(b => b.classList.remove("busy"));
+    return;
+  }
+  for (const v of r.variants) {
+    const d = row(v.label + "（" + v.codec + "）");
+    if (!v.ready) {
+      const st = d.querySelector(".st");
+      st.textContent = "无文件";
+      st.className = "st bad";
+      results[v.codec] = false;
+      console.log("[playtest] " + v.codec + "=MISSING");
+      continue;
+    }
+    sum.textContent = "正在测试 " + v.label + " …";
+    await probeOne(d, API + v.url, v.codec);
+    console.log("[playtest] " + v.codec + "=" + (results[v.codec] ? "PLAY" : "FAIL"));
+  }
+  const order = ["h264", "mpeg4", "vp8", "baseline"];
+  let winner = "";
+  for (const c of order) if (results[c]) { winner = c; break; }
+  if (!winner) {
+    sum.textContent = "⚠ 所有候选都无法在窗口内播放 —— 请点「在系统浏览器打开」查看视频，或检查系统解码器。";
+    document.querySelectorAll("button").forEach(b => b.classList.remove("busy"));
+    console.log("[playtest] result=NONE");
+    return;
+  }
+  if (winner === "h264") {
+    sum.textContent = "✅ 窗口可直接播放 H.264 原始视频，无需额外转码。";
+    try { await fetch(API + "/playtest/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ codec: "h264" }) }); } catch (e) {}
+    console.log("[playtest] winner=h264 saved");
+  } else {
+    const rr = await (await fetch(API + "/playtest/result", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codec: winner })
+    })).json();
+    sum.textContent = rr.ok
+      ? "✅ 已设置窗口默认编码：" + (r.variants.find(x => x.codec === winner) || {}).label +
+        "。之后新生成的视频会自动附带窗口版，窗口内直接播放（系统浏览器仍用原始 H.264）。"
+      : "⚠ 保存失败：" + (rr.error || rr.detail || "未知");
+    console.log("[playtest] winner=" + winner + (rr.ok ? " saved" : " save-failed"));
+  }
+  document.querySelectorAll("button").forEach(b => b.classList.remove("busy"));
+}
+
+document.getElementById("again").onclick = run;
+document.getElementById("back").onclick = () => { location.href = "/"; };
+run();
+</script>
+</body>
+</html>

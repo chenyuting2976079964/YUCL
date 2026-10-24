@@ -963,7 +963,20 @@ public class ApiController {
                 fin.put("size", result.get("size"));
                 fin.put("subtitles", result.get("subtitles"));
                 fin.put("elapsed_s", result.get("elapsed_s"));
-                fin.put("progress", ApiController.progressMap(total, total, "\u5b8c\u6210", 100));
+                fin.put("progress", ApiController.progressMap(total, total, "完成", 100));
+                // 窗口内播放器：用户探测选定窗口友好编码后，额外转一版窗口版（失败不影响任务本身）
+                try {
+                    String pc = this.playCodec();
+                    if (!pc.isEmpty() && !"h264".equals(pc)) {
+                        String winV = this.transcodeWin(Paths.get(FfmpegCore.str(result.get("video")), new String[0]), pc);
+                        if (!winV.isEmpty()) {
+                            fin.put("video_win", winV);
+                            fin.put("play_codec", pc);
+                        }
+                    }
+                }
+                catch (Exception ignored) {
+                }
                 // 声源 / 模型 随结果落盘，播放器点历史作品时可显示完整 meta
                 Object as = result.get("audio_sources");
                 if (as instanceof Map && !((Map<?, ?>)as).isEmpty()) {
@@ -1264,7 +1277,7 @@ public class ApiController {
     }
 
     @GetMapping(value={"/stream"})
-    public ResponseEntity<InputStreamResource> stream(@RequestParam(name="job_id", required=false) String jobId, @RequestHeader(value="Range", required=false) String range) {
+    public ResponseEntity<InputStreamResource> stream(@RequestParam(name="job_id", required=false) String jobId, @RequestParam(name="win", required=false) String win, @RequestHeader(value="Range", required=false) String range) {
         if (jobId == null || jobId.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
@@ -1277,11 +1290,188 @@ public class ApiController {
             // 渲染中：空路径会让 serveFile 对工作目录统计出 total=0 → 误导性的 416
             return ResponseEntity.status((int)409).build();
         }
+        // 窗口内播放（win=1）优先给"窗口版"（探测选定编码转出的版本）；没有则回退原始视频
+        if ("1".equals(win)) {
+            String vw = FfmpegCore.str(job.get("video_win"));
+            if (vw.isEmpty()) {
+                // 旧任务没有 video_win 元数据：看同目录里是否已转过窗口版文件
+                for (String ext : new String[]{"mp4", "webm"}) {
+                    Path cand = Paths.get(videoPath, new String[0]).getParent().resolve("final_subs_win." + ext);
+                    if (Files.isRegularFile(cand)) {
+                        vw = cand.toString();
+                        break;
+                    }
+                }
+            }
+            if (!vw.isEmpty() && Files.isRegularFile(Paths.get(vw, new String[0]))) {
+                videoPath = vw;
+            }
+        }
         Path path = Paths.get(videoPath, new String[0]);
         if (!Files.exists(path, new LinkOption[0])) {
             return ResponseEntity.status((int)410).build();
         }
         return this.serveFile(path, "video", range);
+    }
+
+    /* ---- 窗口内播放器（WebEngine）编码探测：JFX WebEngine 的媒体管线可能解不了 h264，
+       探测页实测出可播放的编码后，任务完成时自动多转一版"窗口版"，窗口内直接播放 ---- */
+
+    private static final List<String> WIN_CODEC_ORDER = List.of("h264", "mpeg4", "vp8", "baseline");
+    private static final Map<String, String[]> WIN_CODECS = Map.of(
+        "h264", new String[]{"H.264（原始）", "mp4"},
+        "mpeg4", new String[]{"MPEG-4（窗口友好）", "mp4"},
+        "vp8", new String[]{"VP8/OPUS（WebM）", "webm"},
+        "baseline", new String[]{"H.264 Baseline", "mp4"});
+
+    private Path playCodecFile() {
+        return DataDirs.dataDir().resolve("play-codec.json");
+    }
+
+    /** 用户探测选定的窗口编码（""=未设置；"h264"=无需转码）。 */
+    private String playCodec() {
+        try {
+            Path f = this.playCodecFile();
+            if (Files.isRegularFile(f)) {
+                JsonNode n = new ObjectMapper().readTree(Files.readAllBytes(f));
+                String c = n.path("codec").asText("");
+                return c;
+            }
+        }
+        catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    /** 把视频转成窗口友好编码（幂等：已存在直接复用）。h264 原样返回自身。 */
+    private String transcodeWin(Path video, String codec) {
+        if ("h264".equals(codec)) {
+            return video.toString();
+        }
+        String[] cc = WIN_CODECS.get(codec);
+        if (cc == null) {
+            return "";
+        }
+        Path out = video.getParent().resolve("final_subs_win." + cc[1]);
+        if (Files.isRegularFile(out)) {
+            return out.toString();
+        }
+        List<String> args = new ArrayList<>();
+        args.add("-i");
+        args.add(video.toString());
+        switch (codec) {
+            case "mpeg4" -> args.addAll(List.of("-c:v", "mpeg4", "-q:v", "7", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart"));
+            case "vp8" -> args.addAll(List.of("-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "16", "-b:v", "1200k", "-c:a", "libopus", "-b:a", "96k"));
+            case "baseline" -> args.addAll(List.of("-c:v", "libx264", "-profile:v", "baseline", "-level", "3.0", "-pix_fmt", "yuv420p", "-crf", "23", "-preset", "fast", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart"));
+            default -> {
+                return "";
+            }
+        }
+        args.add(out.toString());
+        Map<String, Object> r = FfmpegCore.runFfmpeg(args, video.getParent().toString());
+        if (Boolean.TRUE.equals(r.get("ok")) && Files.isRegularFile(out)) {
+            return out.toString();
+        }
+        return "";
+    }
+
+    /** 某任务某编码的窗口版文件路径（不存在 = 未转码）。 */
+    private Path winVariantPath(String jobId, String codec) {
+        Map<String, Object> job = Jobs.find(jobId);
+        if (job == null) {
+            return null;
+        }
+        String v = FfmpegCore.str(job.get("video"));
+        if (v.isEmpty()) {
+            return null;
+        }
+        Path src = Paths.get(v, new String[0]);
+        if (!Files.isRegularFile(src)) {
+            return null;
+        }
+        if ("h264".equals(codec)) {
+            return src;
+        }
+        String[] cc = WIN_CODECS.get(codec);
+        if (cc == null) {
+            return null;
+        }
+        Path out = src.getParent().resolve("final_subs_win." + cc[1]);
+        return Files.isRegularFile(out) ? out : null;
+    }
+
+    @PostMapping(value={"/playtest/variants"})
+    public Map<String, Object> playtestVariants(@RequestBody Map<String, Object> body) {
+        String jobId = FfmpegCore.str(body.get("job_id"));
+        Map<String, Object> job = Jobs.find(jobId);
+        if (job == null || FfmpegCore.str(job.get("video")).isEmpty()) {
+            return Map.of("ok", false, "error", "该作品暂无可用视频");
+        }
+        Path video = Paths.get(FfmpegCore.str(job.get("video")), new String[0]);
+        if (!Files.isRegularFile(video)) {
+            return Map.of("ok", false, "error", "该作品视频文件已不存在");
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String codec : WIN_CODEC_ORDER) {
+            String p;
+            try {
+                p = this.transcodeWin(video, codec);
+            }
+            catch (Exception e) {
+                p = "";
+            }
+            LinkedHashMap<String, Object> e = new LinkedHashMap<>();
+            e.put("codec", codec);
+            e.put("label", WIN_CODECS.get(codec)[0]);
+            e.put("ready", !p.isEmpty());
+            e.put("url", p.isEmpty() ? "" : "/playtest/variant?job_id=" + java.net.URLEncoder.encode(jobId, java.nio.charset.StandardCharsets.UTF_8) + "&codec=" + codec);
+            out.add(e);
+        }
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("ok", true);
+        r.put("job", jobId);
+        r.put("variants", out);
+        return r;
+    }
+
+    @GetMapping(value={"/playtest/variant"}, produces={"video/mp4"})
+    public ResponseEntity<InputStreamResource> playtestVariant(@RequestParam(name="job_id") String jobId, @RequestParam(name="codec") String codec, @RequestHeader(value="Range", required=false) String range) {
+        Path p = this.winVariantPath(jobId, codec);
+        if (p == null) {
+            return ResponseEntity.status((int)404).build();
+        }
+        return this.serveFile(p, "playtest", range);
+    }
+
+    @PostMapping(value={"/playtest/result"})
+    public Map<String, Object> playtestResultSet(@RequestBody Map<String, Object> body) {
+        String codec = FfmpegCore.str(body.get("codec"));
+        if (!WIN_CODECS.containsKey(codec)) {
+            return Map.of("ok", false, "error", "未知编码");
+        }
+        try {
+            LinkedHashMap<String, Object> doc = new LinkedHashMap<>();
+            doc.put("codec", codec);
+            doc.put("at", String.valueOf(System.currentTimeMillis()));
+            Files.createDirectories(DataDirs.dataDir());
+            Files.write(this.playCodecFile(), new ObjectMapper().writeValueAsBytes(doc));
+        }
+        catch (IOException e) {
+            return Map.of("ok", false, "error", "保存失败：" + e.getMessage());
+        }
+        LinkedHashMap<String, Object> r = new LinkedHashMap<>();
+        r.put("ok", true);
+        r.put("codec", codec);
+        return r;
+    }
+
+    @GetMapping(value={"/playtest/result"})
+    public Map<String, Object> playtestResultGet() {
+        String c = this.playCodec();
+        LinkedHashMap<String, Object> r = new LinkedHashMap<>();
+        r.put("codec", c);
+        r.put("enabled", !c.isEmpty() && !"h264".equals(c));
+        return r;
     }
 
     @GetMapping(value={"/healthz"})

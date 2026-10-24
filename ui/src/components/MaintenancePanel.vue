@@ -7,6 +7,9 @@
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
         <button type="button" class="cb-addbtn" style="width:100%;padding:8px 14px" @click="backup">⬇ 下载备份（图片 / 语音 / BGM / 任务历史 / 模型配置）</button>
         <button v-if="showBkFallback" type="button" class="cb-addbtn" style="width:100%;padding:8px 14px" @click="backupInBrowser">⇕ 用系统浏览器下载备份（窗口内保存失败时用）</button>
+        <button type="button" class="cb-addbtn" style="width:100%;padding:8px 14px" @click="togglePlaytest">🎞 窗口播放器诊断（窗口内视频无法播放时点此）</button>
+        <iframe v-if="showPlaytest" :src="playtestSrc" style="width:100%;height:430px;border:1px solid var(--border);border-radius:8px;background:#0a0b0f"></iframe>
+        <div v-if="playCodecLabel" style="font-size:12.5px;color:var(--muted);margin-top:2px">窗口默认编码：{{ playCodecLabel }}</div>
         <div class="upl">
           <input type="file" ref="rf" accept=".zip" @change="restore">
           <span>恢复备份（选择备份 zip，覆盖本机数据）</span>
@@ -24,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { api } from "../api";
 import { useAppStore } from "../store";
 import { uiConfirm, uiPrompt } from "../dialogs";
@@ -35,6 +38,33 @@ const showLogs = ref(false);
 const logText = ref("");
 const showBkFallback = ref(false);
 const rf = ref<HTMLInputElement | null>(null);
+const showPlaytest = ref(false);
+const playtestSrc = ref("playtest.html");
+const playCodecLabel = ref("");
+
+const PLAYCODEC_NAMES: Record<string, string> = {
+  h264: "H.264 原始（窗口可直接播放）",
+  mpeg4: "MPEG-4 窗口版",
+  vp8: "VP8/OPUS 窗口版",
+  baseline: "H.264 Baseline 窗口版",
+};
+
+async function refreshPlayCodec() {
+  try {
+    const r = await fetch(location.origin + "/api/plugins/ai-video/playtest/result");
+    const j = await r.json();
+    playCodecLabel.value = j.codec ? (PLAYCODEC_NAMES[j.codec] || j.codec) : "";
+  } catch { playCodecLabel.value = ""; }
+}
+async function togglePlaytest() {
+  showPlaytest.value = !showPlaytest.value;
+  if (showPlaytest.value) {
+    // 每次打开都刷新探测页（避免缓存旧结果）
+    playtestSrc.value = "playtest.html?" + Date.now();
+  }
+  refreshPlayCodec();
+}
+onMounted(refreshPlayCodec);
 
 async function backup() {
   status.value = "打包备份中（图片/语音/BGM/历史/配置可能较大，稍候）…";
