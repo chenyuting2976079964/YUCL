@@ -35,6 +35,16 @@
       <classifier>win</classifier>
     </dependency>
 
+    <!-- JavaFX 原生媒体管线（MediaPlayer/Video）：走 Windows Media Foundation 解码器。
+         WebEngine 的 WebKit 媒体栈没有 H.264/MPEG-4 解码器（窗口内播放黑屏的根因），
+         原生播放器浮层用它直接放 H.264/AAC 成片，不经过 WebView。 -->
+    <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-media</artifactId>
+      <version>${openjfx.version}</version>
+      <classifier>win</classifier>
+    </dependency>
+
     <!-- Windows 原生无边框窗口缩放（WM_NCCALCSIZE 子类化：框架级 resize，跟手不丢） -->
     <dependency>
       <groupId>net.java.dev.jna</groupId>

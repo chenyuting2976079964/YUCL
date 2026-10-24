@@ -82,6 +82,7 @@ extends Application {
     private final Runnable onShutdown;
     private Stage stage;
     private NativeWindow nativeWindow;
+    private NativePlayerOverlay playerOverlay;
     private double outScale = 1.0;
     public static volatile Runnable windowResetHook;
 
@@ -167,6 +168,48 @@ extends Application {
         anim.play();
         StackPane root = new StackPane();
         root.getChildren().addAll(view, splashRoot);
+        // ── 原生视频播放浮层（随包 ffmpeg 软解 + Canvas 逐帧绘制，根治 WebEngine 黑屏：
+        //    WebKit 媒体栈无 H.264 解码器，JavaFX MediaPlayer 的 GStreamer-lite 又无任何
+        //    视频解码器——两条官方媒体路都走不通，只有 ffmpeg 能解出帧画进窗口）。
+        //    JS 侧无法直接调 Java：POST /playtest/native-request → 后端同进程内存队列
+        //    （ApiController.NATIVE_PLAY_QUEUE）→ 本 Timeline 每 300ms 出队一次 ──
+        this.playerOverlay = new NativePlayerOverlay();
+        root.getChildren().add(this.playerOverlay); // 最上层；隐藏时 pickOnBounds=false 不挡网页点击
+        new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.millis(300L), e3 -> {
+            String jobId = com.aivideo.ApiController.nativePlayQueuePop();
+            if (jobId == null) {
+                return;
+            }
+            new Thread(() -> {
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection)new java.net.URL(this.baseUrl + "/api/plugins/ai-video/playtest/native-video-path?job_id=" + java.net.URLEncoder.encode(jobId, java.nio.charset.StandardCharsets.UTF_8)).openConnection();
+                    c.setConnectTimeout(500);
+                    c.setReadTimeout(1500);
+                    if (c.getResponseCode() != 200) {
+                        trace("native player: path lookup http " + c.getResponseCode() + " for " + jobId);
+                        return;
+                    }
+                    JsonNode n = JSON.readTree(c.getInputStream());
+                    String p = n.path("path").asText("");
+                    String t = n.path("topic").asText("");
+                    if (p.isEmpty()) {
+                        trace("native player: empty path for " + jobId);
+                        return;
+                    }
+                    Platform.runLater(() -> {
+                        try {
+                            this.playerOverlay.open(p, t.isEmpty() ? jobId : t);
+                            trace("native player open: " + p);
+                        } catch (Throwable ex) {
+                            trace("native player open failed: " + ex);
+                        }
+                    });
+                }
+                catch (Exception ex) {
+                    trace("native player lookup error: " + ex);
+                }
+            }, "yucl-native-player").start();
+        })).play();
         // ── 自定义深色标题栏（去装饰窗口 + 原生浅标题栏不搭）──
         javafx.scene.layout.HBox titleBar = new javafx.scene.layout.HBox(10.0);
         titleBar.setPrefHeight(40.0);
@@ -474,6 +517,13 @@ extends Application {
 
     private void doExit() {
         this.saveGeometry();
+        try {
+            if (this.playerOverlay != null) {
+                this.playerOverlay.close();
+            }
+        }
+        catch (Exception ignored) {
+        }
         if (this.onShutdown != null) {
             try {
                 this.onShutdown.run();

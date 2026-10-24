@@ -51,6 +51,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref } from "vue";
+import { autoProbeCodec } from "./autoProbe";
 import { api } from "./api";
 import { useAppStore } from "./store";
 import InPageModal from "./components/InPageModal.vue";
@@ -183,6 +184,11 @@ onMounted(async () => {
   store.loadVoices();
   store.loadMusic();
   store.loadJobs();
+  // 静默自动探测窗口可解码的编码（一次，后台跑；结果决定"窗口版"转码策略/原生播放器兜底）
+  setTimeout(() => {
+    const probeJob = store.jobs.find(j => j.status === "done")?.id;
+    autoProbeCodec(probeJob);
+  }, 800);
   const poll = async () => {
     try {
       const j = await api.agnesaStatus();

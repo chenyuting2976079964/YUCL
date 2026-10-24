@@ -9,6 +9,7 @@
         </div>
         <video ref="vid" v-show="current" controls style="max-height:64vh"></video>
         <div class="meta">
+          <button v-if="current" type="button" id="player-native" class="chipbtn" title="内置网页播放黑屏时用原生播放器（Windows 系统解码器，H.264/MPEG-4 全支持）" @click="requestNative(false)">⚡&emsp;原生播放器</button>
           <button v-if="current" type="button" id="player-open" class="chipbtn" title="窗口内播放异常、或想用完整功能（字幕轨道等）时，用系统浏览器打开" @click="openInBrowser">⇕&emsp;在系统浏览器打开</button>
           <span v-if="playerHint" class="phint">{{ playerHint }}</span>
           <template v-if="meta">
@@ -48,6 +49,7 @@ const meta = ref<MediaMeta | null>(null);
 const playerHint = ref("");
 const playerError = ref("");
 const vid = ref<HTMLVideoElement | null>(null);
+const nativeRequested = ref<Set<string>>(new Set());
 
 const audioSrcs = computed(() => {
   const a = meta.value?.audio_sources;
@@ -57,7 +59,31 @@ const audioSrcs = computed(() => {
 
 function onStreamError() {
   if (vid.value?.error) {
-    playerHint.value = "⚠ 窗口内播放器无法播放此视频（编码不受支持）——点右侧按钮用系统浏览器打开。";
+    // WebEngine 的 WebKit 媒体栈解不了 H.264/MPEG-4 → 自动切原生播放器（每个作品只自动一次）
+    if (activeJobId.value && !nativeRequested.value.has(activeJobId.value)) {
+      nativeRequested.value.add(activeJobId.value);
+      requestNative(true);
+      return;
+    }
+    playerHint.value = "⚠ 窗口内网页播放器无法播放此视频（编码不受支持）——点「⚡ 原生播放器」或用系统浏览器打开。";
+  }
+}
+async function requestNative(auto: boolean) {
+  if (!activeJobId.value) return;
+  try {
+    const r = await fetch(baseUrl + "/playtest/native-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: activeJobId.value }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) {
+      playerHint.value = (auto ? "内置网页播放器无法解码此视频，已自动切换原生播放器。" : "已启动原生播放器。") + " 浮层在窗口中央（若看不到，请切到 YUCL 窗口前台）。";
+    } else {
+      playerHint.value = "⚠ 原生播放器启动失败：" + ((j && j.error) || "未知原因");
+    }
+  } catch (e: any) {
+    playerHint.value = "⚠ 原生播放器启动失败：" + (e?.message || e);
   }
 }
 function onSelect(jobId: string, m?: unknown) {

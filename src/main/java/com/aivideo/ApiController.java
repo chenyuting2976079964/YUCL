@@ -968,7 +968,7 @@ public class ApiController {
                 // 窗口内直接播放用；失败不影响任务本身（原 h264 仍可浏览器/下载）
                 try {
                     String pc = this.effPlayCodec();
-                    if (!"h264".equals(pc)) {
+                    if (!"h264".equals(pc) && !"none".equals(pc)) {
                         String winV = this.transcodeWin(Paths.get(FfmpegCore.str(result.get("video")), new String[0]), pc);
                         if (!winV.isEmpty()) {
                             fin.put("video_win", winV);
@@ -1295,7 +1295,8 @@ public class ApiController {
         // 旧作品没有窗口版 → 现场按需转码（幂等，之后秒开），不需要重新生成作品。
         if ("1".equals(win)) {
             String want = this.effPlayCodec();
-            if (!"h264".equals(want)) {
+            // "none" = 诊断确认窗口内什么编码都解不了 → 不再白做转码，直接给原片（原生播放器用）
+            if (!"h264".equals(want) && !"none".equals(want)) {
                 Path srcP = Paths.get(videoPath, new String[0]);
                 Path cand = this.winVariantFile(srcP, want);
                 if (!Files.isRegularFile(cand)) {
@@ -1470,10 +1471,68 @@ public class ApiController {
         return this.serveFile(p, "playtest", range);
     }
 
+    /* ---- 原生播放桥（根治 WebEngine 黑屏）：WebEngine 的 WebKit 媒体栈没有 H.264/MPEG-4
+       解码器，<video> 放任何成片都黑屏。JavaFX MediaPlayer 走 Windows Media Foundation
+       （系统解码器）不受影响。JS 不能直接调 Java，交接方式是同进程内存队列：
+       JS POST /playtest/native-request → 入队 → AppShell 的 JavaFX 侧 Timeline 每 300ms
+       轮询出队 → 查 /playtest/native-video-path 取文件 → 打开原生播放器浮层。---- */
+    private static final java.util.concurrent.ConcurrentLinkedQueue<String> NATIVE_PLAY_QUEUE = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+
+    public static void nativePlayQueuePush(String jobId) {
+        NATIVE_PLAY_QUEUE.add(jobId);
+    }
+
+    public static String nativePlayQueuePop() {
+        return NATIVE_PLAY_QUEUE.poll();
+    }
+
+    @PostMapping(value={"/playtest/native-request"})
+    public Map<String, Object> nativePlayRequest(@RequestBody Map<String, Object> body) {
+        String jobId = FfmpegCore.str(body.get("job_id"));
+        if (jobId == null || jobId.isEmpty()) {
+            return Map.of("ok", false, "error", "缺少 job_id");
+        }
+        Map<String, Object> job = Jobs.find(jobId);
+        if (job == null) {
+            return Map.of("ok", false, "error", "未找到该作品");
+        }
+        String v = FfmpegCore.str(job.get("video"));
+        if (v.isEmpty() || !Files.isRegularFile(Paths.get(v, new String[0]))) {
+            return Map.of("ok", false, "error", "该作品暂无可播放的视频文件");
+        }
+        nativePlayQueuePush(jobId);
+        Map<String, Object> r = new LinkedHashMap<String, Object>();
+        r.put("ok", true);
+        r.put("job", jobId);
+        return r;
+    }
+
+    @GetMapping(value={"/playtest/native-video-path"})
+    public Map<String, Object> playtestNativeVideoPath(@RequestParam(name="job_id", required=false, defaultValue="") String jobId) {
+        if (jobId.isEmpty()) {
+            return Map.of("ok", false, "error", "缺少 job_id 参数");
+        }
+        Map<String, Object> job = jobId == null ? null : Jobs.find(jobId);
+        if (job == null) {
+            return Map.of("ok", false, "error", "未找到该作品");
+        }
+        String v = FfmpegCore.str(job.get("video"));
+        if (v.isEmpty() || !Files.isRegularFile(Paths.get(v, new String[0]))) {
+            return Map.of("ok", false, "error", "视频文件已不存在");
+        }
+        LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("ok", true);
+        out.put("job_id", jobId);
+        out.put("path", v);
+        out.put("topic", FfmpegCore.str(job.get("topic")));
+        return out;
+    }
+
     @PostMapping(value={"/playtest/result"})
     public Map<String, Object> playtestResultSet(@RequestBody Map<String, Object> body) {
         String codec = FfmpegCore.str(body.get("codec"));
-        if (!WIN_CODECS.containsKey(codec)) {
+        // "none" = 自动探测确认窗口内什么编码都解不了（此后窗口版不再转码，播放走原生播放器）
+        if (!WIN_CODECS.containsKey(codec) && !"none".equals(codec)) {
             return Map.of("ok", false, "error", "未知编码");
         }
         try {
