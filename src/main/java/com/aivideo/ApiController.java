@@ -872,6 +872,31 @@ public class ApiController {
             List<Map<String, Object>> shots = ApiController.asMapList(params.get("shots"));
             List<Map<String, Object>> chars = ApiController.asMapList(params.get("characters"));
             List<Map<String, Object>> bgs = ApiController.asMapList(params.get("backgrounds"));
+            // 镜头引用兜底：名称为空或在实体里查不到（UI 数据错位/旧项目）时，人物/背景指回第一个实体，避免"全部图片路径缺失"
+            if (!chars.isEmpty() || !bgs.isEmpty()) {
+                List<String> charNames = new ArrayList<>();
+                for (Map<String, Object> m : chars) {
+                    charNames.add(FfmpegCore.str(m.get("name")));
+                }
+                List<String> bgNames = new ArrayList<>();
+                for (Map<String, Object> m : bgs) {
+                    bgNames.add(FfmpegCore.str(m.get("name")));
+                }
+                for (Map<String, Object> s : shots) {
+                    String cn = FfmpegCore.str(s.get("character"));
+                    if ((!cn.isEmpty() && !charNames.contains(cn)) || (cn.isEmpty() && !chars.isEmpty())) {
+                        s.put("character", FfmpegCore.str(((Map<String, Object>) chars.get(0)).get("name")));
+                    }
+                    String c2 = FfmpegCore.str(s.get("character2"));
+                    if (!c2.isEmpty() && !charNames.contains(c2)) {
+                        s.put("character2", ""); // 查不到的第二人物降级为单人镜头
+                    }
+                    String bn = FfmpegCore.str(s.get("background"));
+                    if ((!bn.isEmpty() && !bgNames.contains(bn)) || (bn.isEmpty() && !bgs.isEmpty())) {
+                        s.put("background", FfmpegCore.str(((Map<String, Object>) bgs.get(0)).get("name")));
+                    }
+                }
+            }
             String orientation = FfmpegCore.str(params.get("orientation")).isEmpty() ? "vertical" : FfmpegCore.str(params.get("orientation"));
             boolean subtitles = Boolean.TRUE.equals(params.get("subtitles"));
             String bgm = FfmpegCore.str(params.get("bgm"));

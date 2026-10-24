@@ -186,7 +186,11 @@ public final class Projects {
           continue;
         }
         Path src = Paths.get(p);
-        if (!Files.isRegularFile(src)) continue;
+        if (!Files.isRegularFile(src)) {
+            // 裸文件名（media 库资产，如项目回填后的 path）→ 从全局媒体目录解析
+            Path mediaSrc = DataDirs.mediaDir("images").resolve(bare);
+            if (Files.isRegularFile(mediaSrc)) src = mediaSrc; else continue;
+        }
         Path dst = ad.resolve(bare);
         if (!Files.exists(dst)) {
           try {

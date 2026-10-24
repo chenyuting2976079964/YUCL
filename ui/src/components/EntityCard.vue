@@ -9,7 +9,7 @@
       <button type="button" :class="{ on: entity.src === 'prompt' }" @click="switchSrc('prompt')">{{ t("prompt") }}</button>
     </div>
     <div class="cb-body">
-      <img v-if="entity.imgSrc" class="cb-img" :src="entity.imgSrc" referrerpolicy="no-referrer">
+      <img v-if="entity.imgSrc" class="cb-img" :src="entity.imgSrc" referrerpolicy="no-referrer" @error="onImgErr">
       <div v-else class="cb-imgph">暂无图片<br>生成或上传</div>
       <div class="cb-prompt">
         <template v-if="entity.src === 'prompt'">
@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { api, baseUrl, type Options, type VoiceItem } from "../api";
 import { uiAlert } from "../dialogs";
 import { t } from "../i18n";
@@ -60,12 +60,19 @@ const emit = defineEmits<{ (e: "removed", ent: CbEntity): void }>();
 
 const busy = ref(false);
 const fileInp = ref<HTMLInputElement | null>(null);
+// 项目打开/新建会整体替换实体对象：重置旧卡片残留的「生成中」等忙碌态
+watch(() => props.entity, () => { busy.value = false; });
 
 function switchSrc(src: "prompt" | "upload") {
   props.entity.src = src;
   props.entity.path = "";
   props.entity.url = "";
   props.entity.imgSrc = "";
+  props.entity.image = "";
+}
+// 图片加载失败（公网 URL 过期 / 项目资产缺失）→ 清掉预览回到占位符，不显示破图图标
+function onImgErr() {
+  if (props.entity.imgSrc) props.entity.imgSrc = "";
 }
 async function genImage() {
   if (!props.entity.prompt.trim()) { await uiAlert("请先填写提示词"); return; }
@@ -83,6 +90,7 @@ async function genImage() {
       props.entity.path = j.local_path || "";
       props.entity.url = j.url || "";
       props.entity.imgSrc = j.url || "";
+      props.entity.image = j.local_path ? j.local_path.split(/[\\/]/).pop() || "" : "";
     } else await uiAlert("生成失败：" + (j.error || j.detail || "未知错误"));
   } catch (ex: any) {
     clearTimeout(tid);
@@ -102,6 +110,7 @@ async function upload(e: Event) {
       props.entity.path = j.path || "";
       props.entity.url = "";
       props.entity.imgSrc = baseUrl + "/images/preview?name=" + encodeURIComponent(j.name || "");
+      props.entity.image = j.name || "";
     } else await uiAlert("上传失败：" + (j.detail || j.error || "未知错误"));
   } catch (ex: any) {
     await uiAlert("上传失败：" + (ex?.message || ex));

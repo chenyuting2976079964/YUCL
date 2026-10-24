@@ -129,6 +129,7 @@ const cards = inject<Cards>("yuclCards", { voice: () => null, bgm: () => null })
 export interface CbEntity {
   id: number; name: string; src: "prompt" | "upload";
   prompt: string; path: string; url: string; imgSrc: string; voice: string;
+  image?: string; // 媒体库/项目资产里的裸文件名（提交与项目保存都认它；path 只是本地缓存路径）
 }
 interface Shot {
   char: number; char2: number; bg: number; text: string; seconds: number; engine: string;
@@ -138,7 +139,7 @@ const store = useAppStore();
 let uid = 0;
 function makeEntity(kind: "chars" | "bgs"): CbEntity {
   const n = (kind === "chars" ? chars.value : bgs.value).length + 1;
-  return { id: ++uid, name: (kind === "chars" ? "人物" : "背景") + n, src: "prompt", prompt: "", path: "", url: "", imgSrc: "", voice: "" };
+  return { id: ++uid, name: (kind === "chars" ? "人物" : "背景") + n, src: "prompt", prompt: "", path: "", url: "", imgSrc: "", voice: "", image: "" };
 }
 
 const chars = ref<CbEntity[]>([]);
@@ -174,8 +175,8 @@ const imgModelList = computed(() => configured.value ? (activeProv.value?.image_
 
 // 步骤指示器：①人物图 ②场景图 ③内容描述 ④生成视频
 const steps = computed(() => [
-  { k: "c", n: 1, name: t("step1"), done: chars.value.some(c => c.path || c.url) },
-  { k: "b", n: 2, name: t("step2"), done: bgs.value.some(b => b.path || b.url) },
+  { k: "c", n: 1, name: t("step1"), done: chars.value.some(c => c.path || c.url || c.image) },
+  { k: "b", n: 2, name: t("step2"), done: bgs.value.some(b => b.path || b.url || b.image) },
   { k: "s", n: 3, name: t("step3"), done: shots.value.some(s => s.text.trim() !== "") },
   { k: "g", n: 4, name: t("step4"), done: false }
 ]);
@@ -221,7 +222,7 @@ function applyScript(s: ScriptDoc): string {
     used.add(nm);
     return {
       id: ++uid, name: nm, src: "prompt" as const, prompt: c.appearance || "",
-      path: "", url: "", imgSrc: "",
+      path: "", url: "", imgSrc: "", image: "",
       // LLM 给的 voice 多是描述词（「成熟女声」），不是可选的 tts:/file: 值 → 只保留合法前缀
       voice: /^(tts:|file:)/.test(c.voice || "") ? (c.voice as string) : ""
     };
@@ -261,12 +262,12 @@ async function submit() {
   status.value = "";
   error.value = "";
   voiceWarn.value = "";
-  const charsP = chars.value.filter(c => c.path || c.url).map(c => ({
-    name: c.name || "人物", image: c.path || "", url: c.url || "",
+  const charsP = chars.value.filter(c => c.path || c.url || c.image).map(c => ({
+    name: c.name || "人物", image: c.path || c.image || "", url: c.url || "",
     source: c.src === "prompt" ? "prompt" : "upload"
   }));
-  const bgsP = bgs.value.filter(b => b.path || b.url).map(b => ({
-    name: b.name || "背景", image: b.path || "", url: b.url || "",
+  const bgsP = bgs.value.filter(b => b.path || b.url || b.image).map(b => ({
+    name: b.name || "背景", image: b.path || b.image || "", url: b.url || "",
     source: b.src === "prompt" ? "prompt" : "upload"
   }));
   const byId = (arr: CbEntity[], id: number) => arr.find(x => x.id === +id) || ({} as CbEntity);
@@ -324,8 +325,9 @@ defineExpose({
   // 项目制：导出表单完整状态（人物/背景/镜头/画面设置），供 App 组装项目文件
   getProjectState() {
     const entOut = (e: CbEntity) => ({
+      id: e.id,
       name: e.name, src: e.src, prompt: e.prompt,
-      image: e.path ? e.path.split(/[\\/]/).pop() || "" : "",
+      image: (e.path ? e.path.split(/[\\/]/).pop() || "" : "") || e.image || "",
       url: e.url || "",
       path: e.path || "",
       voice: e.voice || ""
@@ -356,7 +358,7 @@ defineExpose({
         else if (image) imgSrc = baseUrl + "/images/preview?name=" + encodeURIComponent(image);
         else imgSrc = e?.url || "";
         return {
-          id: e?.id || ++uid,
+          id: (typeof e?.id === "number" && e.id > 0 ? e.id : ++uid),
           name: e?.name || ((kind === "chars" ? "人物" : "背景") + (i + 1)),
           src: (e?.src === "upload" ? "upload" : "prompt") as "prompt" | "upload",
           prompt: e?.prompt || "",
@@ -371,9 +373,16 @@ defineExpose({
     if (!chars.value.length) chars.value.push(makeEntity("chars"));
     if (!bgs.value.length) bgs.value.push(makeEntity("bgs"));
     uid = Math.max(uid, ...chars.value.map(c => c.id), ...bgs.value.map(b => b.id));
+    // 镜头引用重映射：旧项目/损坏引用（实体 id 对不上）时按 1 基序号兜底，避免镜头指向空名
+    const remapRef = (refId: number, arr: CbEntity[]): number => {
+      if (refId === 0) return 0;
+      if (arr.some(x => x.id === refId)) return refId;
+      if (refId <= arr.length) return arr[refId - 1].id;
+      return arr[0]?.id || 0;
+    };
     shots.value = (Array.isArray(f.shots) && f.shots.length ? f.shots : [])
       .map((s: any) => ({
-        char: +s?.char || 0, char2: +s?.char2 || 0, bg: +s?.bg || 0,
+        char: remapRef(+s?.char || 0, chars.value), char2: remapRef(+s?.char2 || 0, chars.value), bg: remapRef(+s?.bg || 0, bgs.value),
         text: s?.text || "", seconds: +s?.seconds || 5, engine: s?.engine || "local"
       }));
     if (!shots.value.length) shots.value.push({ char: chars.value[0].id, char2: chars.value[1]?.id || 0, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" });
