@@ -964,10 +964,11 @@ public class ApiController {
                 fin.put("subtitles", result.get("subtitles"));
                 fin.put("elapsed_s", result.get("elapsed_s"));
                 fin.put("progress", ApiController.progressMap(total, total, "完成", 100));
-                // 窗口内播放器：用户探测选定窗口友好编码后，额外转一版窗口版（失败不影响任务本身）
+                // 窗口内播放器：每个完成的任务都附带一份"窗口版"（默认 mpeg4，或诊断选定的编码），
+                // 窗口内直接播放用；失败不影响任务本身（原 h264 仍可浏览器/下载）
                 try {
-                    String pc = this.playCodec();
-                    if (!pc.isEmpty() && !"h264".equals(pc)) {
+                    String pc = this.effPlayCodec();
+                    if (!"h264".equals(pc)) {
                         String winV = this.transcodeWin(Paths.get(FfmpegCore.str(result.get("video")), new String[0]), pc);
                         if (!winV.isEmpty()) {
                             fin.put("video_win", winV);
@@ -1290,21 +1291,30 @@ public class ApiController {
             // 渲染中：空路径会让 serveFile 对工作目录统计出 total=0 → 误导性的 416
             return ResponseEntity.status((int)409).build();
         }
-        // 窗口内播放（win=1）优先给"窗口版"（探测选定编码转出的版本）；没有则回退原始视频
+        // 窗口内播放（win=1）：给"窗口版"（默认 mpeg4，或用户探测选定的编码）。
+        // 旧作品没有窗口版 → 现场按需转码（幂等，之后秒开），不需要重新生成作品。
         if ("1".equals(win)) {
-            String vw = FfmpegCore.str(job.get("video_win"));
-            if (vw.isEmpty()) {
-                // 旧任务没有 video_win 元数据：看同目录里是否已转过窗口版文件
-                for (String ext : new String[]{"mp4", "webm"}) {
-                    Path cand = Paths.get(videoPath, new String[0]).getParent().resolve("final_subs_win." + ext);
-                    if (Files.isRegularFile(cand)) {
-                        vw = cand.toString();
-                        break;
+            String want = this.effPlayCodec();
+            if (!"h264".equals(want)) {
+                Path srcP = Paths.get(videoPath, new String[0]);
+                Path cand = this.winVariantFile(srcP, want);
+                if (!Files.isRegularFile(cand)) {
+                    synchronized (WIN_LOCK) {
+                        if (!Files.isRegularFile(cand)) {
+                            try {
+                                String made = this.transcodeWin(srcP, want);
+                                if (made.isEmpty()) cand = null;
+                            }
+                            catch (Exception e) {
+                                cand = null;
+                            }
+                        }
                     }
                 }
-            }
-            if (!vw.isEmpty() && Files.isRegularFile(Paths.get(vw, new String[0]))) {
-                videoPath = vw;
+                if (cand != null && Files.isRegularFile(cand)) {
+                    videoPath = cand.toString();
+                }
+                // 转码失败 → 回退原始视频（窗口里可能还是黑屏，但下载/浏览器可用）
             }
         }
         Path path = Paths.get(videoPath, new String[0]);
@@ -1323,6 +1333,9 @@ public class ApiController {
         "mpeg4", new String[]{"MPEG-4（窗口友好）", "mp4"},
         "vp8", new String[]{"VP8/OPUS（WebM）", "webm"},
         "baseline", new String[]{"H.264 Baseline", "mp4"});
+    private static final Object WIN_LOCK = new Object();
+    /** 默认窗口版编码：用户没跑过诊断时就用它（MP4 封装 + MPEG-4 视频，兼容面最广） */
+    private static final String WIN_DEFAULT_CODEC = "mpeg4";
 
     private Path playCodecFile() {
         return DataDirs.dataDir().resolve("play-codec.json");
@@ -1343,6 +1356,24 @@ public class ApiController {
         return "";
     }
 
+    /** 实际生效的窗口版编码：用户探测结果优先，未探测时默认 mpeg4。 */
+    private String effPlayCodec() {
+        String pc = this.playCodec();
+        return pc.isEmpty() ? WIN_DEFAULT_CODEC : pc;
+    }
+
+    /** 某编码的窗口版文件路径（编码进文件名，避免不同编码互相覆盖）。 */
+    private Path winVariantFile(Path src, String codec) {
+        if ("h264".equals(codec)) {
+            return src;
+        }
+        String[] cc = WIN_CODECS.get(codec);
+        if (cc == null) {
+            return src;
+        }
+        return src.getParent().resolve("final_subs_win_" + codec + "." + cc[1]);
+    }
+
     /** 把视频转成窗口友好编码（幂等：已存在直接复用）。h264 原样返回自身。 */
     private String transcodeWin(Path video, String codec) {
         if ("h264".equals(codec)) {
@@ -1352,7 +1383,7 @@ public class ApiController {
         if (cc == null) {
             return "";
         }
-        Path out = video.getParent().resolve("final_subs_win." + cc[1]);
+        Path out = this.winVariantFile(video, codec);
         if (Files.isRegularFile(out)) {
             return out.toString();
         }
@@ -1392,11 +1423,7 @@ public class ApiController {
         if ("h264".equals(codec)) {
             return src;
         }
-        String[] cc = WIN_CODECS.get(codec);
-        if (cc == null) {
-            return null;
-        }
-        Path out = src.getParent().resolve("final_subs_win." + cc[1]);
+        Path out = this.winVariantFile(src, codec);
         return Files.isRegularFile(out) ? out : null;
     }
 
@@ -1469,8 +1496,9 @@ public class ApiController {
     public Map<String, Object> playtestResultGet() {
         String c = this.playCodec();
         LinkedHashMap<String, Object> r = new LinkedHashMap<>();
-        r.put("codec", c);
-        r.put("enabled", !c.isEmpty() && !"h264".equals(c));
+        r.put("codec", c.isEmpty() ? WIN_DEFAULT_CODEC : c); // 未探测时显示实际默认值
+        r.put("probe_set", !c.isEmpty());
+        r.put("enabled", !"h264".equals(this.effPlayCodec())); // true = 窗口版需要/会转码
         return r;
     }
 
