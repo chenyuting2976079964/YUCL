@@ -180,6 +180,7 @@ public final class NativePlayerOverlay extends StackPane {
             tick.play();
             setVisible(true);
             setManaged(true);
+            FfmpegFramePlayer.trace("overlay open: " + path);
             log.info("native player open: {}", path);
         } catch (Throwable t) {
             log.error("native player open failed: {}", path, t);

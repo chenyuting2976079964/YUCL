@@ -36,6 +36,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileAttribute;
+import java.util.Map;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Node;
@@ -85,6 +86,8 @@ extends Application {
     private NativePlayerOverlay playerOverlay;
     private double outScale = 1.0;
     public static volatile Runnable windowResetHook;
+    /** 场景快照钩子：name → 保存的 PNG 绝对路径（必须 FX 线程调用；AppShell 启动时注册） */
+    public static volatile java.util.function.Function<String, String> sceneSnapshotHook;
 
     public AppShell(String baseUrl, Runnable onShutdown) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
@@ -175,40 +178,63 @@ extends Application {
         //    （ApiController.NATIVE_PLAY_QUEUE）→ 本 Timeline 每 300ms 出队一次 ──
         this.playerOverlay = new NativePlayerOverlay();
         root.getChildren().add(this.playerOverlay); // 最上层；隐藏时 pickOnBounds=false 不挡网页点击
+        // ── 原生播放器触发：进程内直连（替代旧的"队列→HTTP 自环"跨实例路径）──
+        // JS POST /playtest/native-request → ApiController 直接回调到这里（同一 JVM），
+        // 本窗口所属进程查 Jobs 拿视频路径 → FX 线程开浮层。双开窗口时也开在"被点窗口"里。
+        com.aivideo.ApiController.registerNativePlayHook(jid -> {
+            trace("native hook: job=" + jid + " pid=" + ProcessHandle.current().pid());
+            new Thread(() -> {
+                try {
+                    Map<String, Object> job = com.aivideo.Jobs.find(jid);
+                    if (job == null) {
+                        trace("native hook: job not found: " + jid);
+                        return;
+                    }
+                    String p = com.aivideo.FfmpegCore.str(job.get("video"));
+                    if (p.isEmpty() || !java.nio.file.Files.isRegularFile(java.nio.file.Paths.get(p, new String[0]))) {
+                        trace("native hook: video missing for " + jid + " (path=" + p + ")");
+                        return;
+                    }
+                    String t = com.aivideo.FfmpegCore.str(job.get("topic"));
+                    final String fp = p;
+                    final String ft = (t == null || t.isEmpty()) ? jid : t;
+                    Platform.runLater(() -> {
+                        try {
+                            this.playerOverlay.open(fp, ft);
+                            trace("native player open: " + fp + " (pid=" + ProcessHandle.current().pid() + ")");
+                        } catch (Throwable ex) {
+                            trace("native player open FAILED: " + ex);
+                            log.error("native player open failed", ex);
+                        }
+                    });
+                } catch (Exception ex) {
+                    trace("native hook error: " + ex);
+                }
+            }, "yucl-native-hook").start();
+        });
+        // 旧队列轮询保留为兜底（钩子异常时 POST 退回队列；同窗口内也能开）
         new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.millis(300L), e3 -> {
             String jobId = com.aivideo.ApiController.nativePlayQueuePop();
             if (jobId == null) {
                 return;
             }
-            new Thread(() -> {
+            Map<String, Object> job = com.aivideo.Jobs.find(jobId);
+            String p = job == null ? "" : com.aivideo.FfmpegCore.str(job.get("video"));
+            if (p.isEmpty() || !java.nio.file.Files.isRegularFile(java.nio.file.Paths.get(p, new String[0]))) {
+                trace("native queue fallback: video missing for " + jobId);
+                return;
+            }
+            String t = com.aivideo.FfmpegCore.str(job.get("topic"));
+            final String fp = p;
+            final String ft = (t == null || t.isEmpty()) ? jobId : t;
+            Platform.runLater(() -> {
                 try {
-                    java.net.HttpURLConnection c = (java.net.HttpURLConnection)new java.net.URL(this.baseUrl + "/api/plugins/ai-video/playtest/native-video-path?job_id=" + java.net.URLEncoder.encode(jobId, java.nio.charset.StandardCharsets.UTF_8)).openConnection();
-                    c.setConnectTimeout(500);
-                    c.setReadTimeout(1500);
-                    if (c.getResponseCode() != 200) {
-                        trace("native player: path lookup http " + c.getResponseCode() + " for " + jobId);
-                        return;
-                    }
-                    JsonNode n = JSON.readTree(c.getInputStream());
-                    String p = n.path("path").asText("");
-                    String t = n.path("topic").asText("");
-                    if (p.isEmpty()) {
-                        trace("native player: empty path for " + jobId);
-                        return;
-                    }
-                    Platform.runLater(() -> {
-                        try {
-                            this.playerOverlay.open(p, t.isEmpty() ? jobId : t);
-                            trace("native player open: " + p);
-                        } catch (Throwable ex) {
-                            trace("native player open failed: " + ex);
-                        }
-                    });
+                    this.playerOverlay.open(fp, ft);
+                    trace("native player open (queue fallback): " + fp);
+                } catch (Throwable ex) {
+                    trace("native player open FAILED (queue): " + ex);
                 }
-                catch (Exception ex) {
-                    trace("native player lookup error: " + ex);
-                }
-            }, "yucl-native-player").start();
+            });
         })).play();
         // ── 自定义深色标题栏（去装饰窗口 + 原生浅标题栏不搭）──
         javafx.scene.layout.HBox titleBar = new javafx.scene.layout.HBox(10.0);
@@ -405,22 +431,30 @@ extends Application {
                             + " sceneW=" + s.getScene().getWidth()
                             + " rootW=" + (int) root.getWidth() + " titleBarW=" + (int) titleBar.getWidth()
                             + " tbH=" + (int) titleBar.getHeight());
-                    // JavaFX 自己渲染场景快照（不经过 PrintWindow，排除捕获工具干扰）
-                    javafx.scene.image.WritableImage wi = s.getScene().getRoot()
-                            .snapshot(null, null);
-                    int sw = (int) wi.getWidth(), sh = (int) wi.getHeight();
-                    java.awt.image.BufferedImage bi = new java.awt.image.BufferedImage(sw, sh, java.awt.image.BufferedImage.TYPE_INT_ARGB);
-                    javafx.scene.image.PixelReader pr = wi.getPixelReader();
-                    for (int py = 0; py < sh; py++) {
-                        for (int px = 0; px < sw; px++) {
-                            bi.setRGB(px, py, pr.getArgb(px, py));
+                    // 注册场景快照钩子（JavaFX 内部快照，不经过 PrintWindow，排除捕获工具干扰）
+                    AppShell.sceneSnapshotHook = nm -> {
+                        try {
+                            javafx.scene.image.WritableImage wi = s.getScene().getRoot().snapshot(null, null);
+                            int w2 = (int) wi.getWidth(), h2 = (int) wi.getHeight();
+                            java.awt.image.BufferedImage bi = new java.awt.image.BufferedImage(w2, h2, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                            javafx.scene.image.PixelReader pr = wi.getPixelReader();
+                            for (int py = 0; py < h2; py++) {
+                                for (int px = 0; px < w2; px++) {
+                                    bi.setRGB(px, py, pr.getArgb(px, py));
+                                }
+                            }
+                            java.nio.file.Path snapDir = com.aivideo.DataDirs.dataDir();
+                            java.nio.file.Files.createDirectories(snapDir);
+                            java.nio.file.Path out = snapDir.resolve(nm);
+                            javax.imageio.ImageIO.write(bi, "png", out.toFile());
+                            return out.toString();
+                        } catch (Exception ex) {
+                            throw new RuntimeException("scene snapshot save failed", ex);
                         }
-                    }
-                    // 快照写到当前数据目录（不再写死 D:/YUCL/data，其它安装位置也能出诊断图）
-                    java.nio.file.Path snapDir = com.aivideo.DataDirs.dataDir();
-                    java.nio.file.Files.createDirectories(snapDir);
-                    javax.imageio.ImageIO.write(bi, "png", snapDir.resolve("scene-snapshot.png").toFile());
-                    trace("scene snapshot saved " + sw + "x" + sh + " -> " + snapDir.resolve("scene-snapshot.png"));
+                    };
+                    // JavaFX 自己渲染场景快照
+                    String snapPath = AppShell.sceneSnapshotHook.apply("scene-snapshot.png");
+                    trace("scene snapshot saved " + snapPath);
                 } catch (Exception ex) {
                     trace("snapshot failed: " + ex);
                 }
@@ -435,19 +469,8 @@ extends Application {
             } catch (InterruptedException ignored) { }
             javafx.application.Platform.runLater(() -> {
                 try {
-                    javafx.scene.image.WritableImage wi = s.getScene().getRoot().snapshot(null, null);
-                    int sw = (int) wi.getWidth(), sh = (int) wi.getHeight();
-                    java.awt.image.BufferedImage bi = new java.awt.image.BufferedImage(sw, sh, java.awt.image.BufferedImage.TYPE_INT_ARGB);
-                    javafx.scene.image.PixelReader pr = wi.getPixelReader();
-                    for (int py = 0; py < sh; py++) {
-                        for (int px = 0; px < sw; px++) {
-                            bi.setRGB(px, py, pr.getArgb(px, py));
-                        }
-                    }
-                    java.nio.file.Path snapDir = com.aivideo.DataDirs.dataDir();
-                    java.nio.file.Files.createDirectories(snapDir);
-                    javax.imageio.ImageIO.write(bi, "png", snapDir.resolve("scene-snapshot-form.png").toFile());
-                    trace("form scene snapshot saved " + sw + "x" + sh);
+                    String snapPath = AppShell.sceneSnapshotHook.apply("scene-snapshot-form.png");
+                    trace("form scene snapshot saved " + snapPath);
                 } catch (Exception ex) {
                     trace("form snapshot failed: " + ex);
                 }

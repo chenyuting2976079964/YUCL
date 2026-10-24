@@ -1478,6 +1478,14 @@ public class ApiController {
        轮询出队 → 查 /playtest/native-video-path 取文件 → 打开原生播放器浮层。---- */
     private static final java.util.concurrent.ConcurrentLinkedQueue<String> NATIVE_PLAY_QUEUE = new java.util.concurrent.ConcurrentLinkedQueue<String>();
 
+    /** 进程内直连钩子：AppShell 注册后，本进程的 JS POST 立即在"当前窗口所属 JVM"里开浮层
+     *  （旧路径是队列→跨实例/HTTP 自环，双开窗口时浮层会开错窗口） */
+    private static volatile java.util.function.Consumer<String> nativePlayHook;
+
+    public static void registerNativePlayHook(java.util.function.Consumer<String> h) {
+        nativePlayHook = h;
+    }
+
     public static void nativePlayQueuePush(String jobId) {
         NATIVE_PLAY_QUEUE.add(jobId);
     }
@@ -1500,7 +1508,18 @@ public class ApiController {
         if (v.isEmpty() || !Files.isRegularFile(Paths.get(v, new String[0]))) {
             return Map.of("ok", false, "error", "该作品暂无可播放的视频文件");
         }
-        nativePlayQueuePush(jobId);
+        java.util.function.Consumer<String> h = nativePlayHook;
+        if (h != null) {
+            try {
+                h.accept(jobId); // 进程内直连（当前窗口所属 JVM）
+            }
+            catch (Exception e) {
+                nativePlayQueuePush(jobId); // 兜底：钩子异常退回队列
+            }
+        }
+        else {
+            nativePlayQueuePush(jobId);
+        }
         Map<String, Object> r = new LinkedHashMap<String, Object>();
         r.put("ok", true);
         r.put("job", jobId);
@@ -1559,6 +1578,31 @@ public class ApiController {
         r.put("probe_set", !c.isEmpty());
         r.put("enabled", !"h264".equals(this.effPlayCodec())); // true = 窗口版需要/会转码
         return r;
+    }
+
+    /** 诊断端点：JavaFX 内部场景快照（FX 线程执行，避免跨线程 snapshot 异常）→ 存 PNG 返回路径 */
+    @GetMapping(value={"/scene-snapshot"})
+    public Map<String, Object> sceneSnapshot(@RequestParam(name="name", required=false, defaultValue="scene-snapshot-debug.png") String name) {
+        java.util.function.Function<String, String> h = com.aivideo.AppShell.sceneSnapshotHook;
+        if (h == null) {
+            return Map.of("ok", false, "error", "GUI 尚未就绪（sceneSnapshotHook 未注册）");
+        }
+        // 文件名清洗：只留 [A-Za-z0-9-_.]，防止写出数据目录外
+        String safe = name.replaceAll("[^A-Za-z0-9._-]", "_");
+        java.util.concurrent.CompletableFuture<String> fut = new java.util.concurrent.CompletableFuture<String>();
+        try {
+            javafx.application.Platform.runLater(() -> {
+                try {
+                    fut.complete(h.apply(safe));
+                } catch (Throwable t) {
+                    fut.completeExceptionally(t);
+                }
+            });
+            String p = fut.get(8, java.util.concurrent.TimeUnit.SECONDS);
+            return Map.of("ok", true, "path", p);
+        } catch (Throwable t) {
+            return Map.of("ok", false, "error", "快照失败：" + t.getMessage());
+        }
     }
 
     @GetMapping(value={"/healthz"})

@@ -51,7 +51,6 @@ public final class FfmpegFramePlayer {
     private double duration = Double.NaN;
     private WritableImage wi;
     private PixelWriter pw;
-    private byte[] frameBuf;
 
     private volatile Process videoProc, audioProc;
     private volatile boolean userStopped = false; // 主动暂停/关闭（进程退出≠错误）
@@ -74,12 +73,14 @@ public final class FfmpegFramePlayer {
     /** 探测（宽高/帧率/时长）→ 开画布 → 起两路 ffmpeg。调用线程：任意（内部自己切）。 */
     public void start() {
         new Thread(() -> {
+            trace("start: " + file + " (ffmpeg=" + ffmpeg + ")");
             try {
                 probe();
                 Platform.runLater(() -> sizeCanvas());
                 runSegment(0.0, false);
             } catch (Exception e) {
                 log.warn("frame player start failed: {}", file, e);
+                trace("start FAILED: " + e);
                 fireState("error", e.getMessage());
             }
         }, "yucl-frame-player-boot").start();
@@ -185,18 +186,32 @@ public final class FfmpegFramePlayer {
         return (i > 0 ? s.substring(0, i) : String.valueOf(s)).trim();
     }
 
+    /** 自诊断日志：写 D:\YUCL\data\native-player.log（排查"原生播放器没反应"第一步看这里） */
+    static void trace(String msg) {
+        try {
+            java.nio.file.Path d = DataDirs.dataDir().resolve("native-player.log");
+            java.nio.file.Files.createDirectories(d.getParent());
+            java.nio.file.Files.write(d,
+                    (new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()) + " " + msg + System.lineSeparator()).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void sizeCanvas() {
-        // 视频区（卡片中间 640x318）等比适配
+        // 视频区（卡片中间 640x318）等比适配；Canvas 只显示区大小，
+        // WritableImage 保持视频原生分辨率（drawImage 时缩放）——
+        // 之前误把 WritableImage 建成显示区大小，setPixels(w,h) 越界异常，帧永远画不上
         double areaW = 640.0, areaH = 318.0;
         double s = Math.min(areaW / w, areaH / h);
         double cw = Math.max(16, Math.round(w * s));
         double ch = Math.max(16, Math.round(h * s));
         canvas.setWidth(cw);
         canvas.setHeight(ch);
-        wi = new WritableImage((int) cw, (int) ch);
+        wi = new WritableImage(w, h);
         pw = wi.getPixelWriter();
-        frameBuf = new byte[w * h * 3];
         gc.clearRect(0, 0, cw, ch);
+        trace("canvas sized " + (int) cw + "x" + (int) ch + " (video " + w + "x" + h + ")");
     }
 
     /** 从 fromSec 秒重启两路管道（fromSec=0 且 firstOpen 走首开路径）。 */
@@ -219,20 +234,48 @@ public final class FfmpegFramePlayer {
                 Process v = startQuiet(vc);
                 videoProc = v;
                 InputStream in = v.getInputStream();
-                while (!userStopped && in.readNBytes(frameBuf, 0, frameBuf.length) == frameBuf.length) {
+                // 双缓冲：解码线程与 FX 线程各持一块，避免"帧被下一帧覆盖"
+                byte[] bufA = new byte[w * h * 3];
+                byte[] bufB = new byte[w * h * 3];
+                byte[] cur = bufA;
+                // 按帧率限速：不限速会"快放"完所有帧，画面一闪而过、与音频严重失步
+                long intervalMs = Math.max(1L, Math.round(1000.0 / fps));
+                long nextDraw = System.currentTimeMillis();
+                boolean tracedFrame = false;
+                while (!userStopped && in.readNBytes(cur, 0, cur.length) == cur.length) {
                     frameCount++;
                     if (pw != null) {
-                        final byte[] snap = frameBuf;
+                        final byte[] snap = cur;
                         Platform.runLater(() -> {
-                            pw.setPixels(0, 0, w, h, PixelFormat.getByteRgbInstance(), snap, 0, w);
+                            // rgb24 = 3 字节/像素 → 扫描行步长是 w*3 字节（不是 w，
+                            // 传 w 会让每行错位 2/3 行宽 → 画面撕裂成彩色竖条纹）
+                            pw.setPixels(0, 0, w, h, PixelFormat.getByteRgbInstance(), snap, 0, w * 3);
                             gc.drawImage(wi, 0, 0, canvas.getWidth(), canvas.getHeight());
                         });
+                        if (!tracedFrame) {
+                            tracedFrame = true;
+                            trace("first frame enqueued (" + w + "x" + h + " @ " + fps + "fps)");
+                        }
+                    }
+                    cur = (cur == bufA) ? bufB : bufA;
+                    nextDraw += intervalMs;
+                    long sleep = nextDraw - System.currentTimeMillis();
+                    if (sleep > 0) {
+                        try {
+                            Thread.sleep(sleep);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    } else {
+                        nextDraw = System.currentTimeMillis(); // 落后了不追赶
                     }
                 }
                 int code = userStopped ? 0 : v.waitFor();
                 if (!userStopped && code == 0) {
                     fireState("ended", null);
                 } else if (!userStopped && code != 0) {
+                    trace("video pipe exit code=" + code + " (ffmpeg error)");
                     fireState("error", "视频解码失败（ffmpeg 退出码 " + code + "）");
                 }
             } catch (Exception e) {
@@ -410,6 +453,7 @@ public final class FfmpegFramePlayer {
         userStopped = true;
         killProcesses();
         state = "idle";
+        trace("close");
         GraphicsContext g = gc;
         Platform.runLater(() -> g.clearRect(0, 0, canvas.getWidth(), canvas.getHeight()));
     }
