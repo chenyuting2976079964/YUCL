@@ -28,6 +28,7 @@ import com.sun.jna.win32.W32APIOptions;
  * 全程跟手、无鼠标 grab 丢失、支持超长拖拽。失败时静默降级为纯 JavaFX 行为。
  */
 public final class NativeWindow implements AutoCloseable {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(NativeWindow.class);
 
     /** jna-platform 标准 User32 + 个别未封装方法 */
     interface User32Ex extends User32 {
@@ -37,6 +38,72 @@ public final class NativeWindow implements AutoCloseable {
 
         /** 64 位参数版（GCLP_HBRBACKGROUND 的画刷句柄是 pointer-sized） */
         WinDef.LRESULT SetClassLongPtr(WinDef.HWND hWnd, int nIndex, long dwNewLong);
+    }
+
+    /** kernel32：当前进程 ID（EnumWindows 兜底找窗口用） */
+    interface Kernel32Ex extends com.sun.jna.Library {
+        Kernel32Ex INSTANCE = Native.load("kernel32", Kernel32Ex.class);
+
+        int GetCurrentProcessId();
+    }
+
+    /** 句柄是否属于本进程（防止 FindWindow 跨进程垃圾句柄） */
+    private static boolean isOurs(WinDef.HWND h) {
+        if (h == null || h.getPointer() == null || h.getPointer().equals(Pointer.NULL)) return false;
+        try {
+            com.sun.jna.ptr.IntByReference pid = new com.sun.jna.ptr.IntByReference(0);
+            User32.INSTANCE.GetWindowThreadProcessId(h, pid);
+            return pid.getValue() != 0 && pid.getValue() == Kernel32Ex.INSTANCE.GetCurrentProcessId();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** FindWindow 按标题精确匹配失败时的兜底：枚举本进程所有顶层窗口（标题漂移/DWM 改名也不受影响） */
+    private static WinDef.HWND findByCurrentProcess() {
+        try {
+            final long self = Kernel32Ex.INSTANCE.GetCurrentProcessId();
+            final java.util.List<WinDef.HWND> found = new java.util.ArrayList<>();
+            final WinUser.WNDENUMPROC cb = new WinUser.WNDENUMPROC() {
+                @Override
+                public boolean callback(WinDef.HWND hWnd, Pointer arg) {
+                    try {
+                        com.sun.jna.ptr.IntByReference pid = new com.sun.jna.ptr.IntByReference(0);
+                        User32.INSTANCE.GetWindowThreadProcessId(hWnd, pid);
+                        if (pid.getValue() == self && User32.INSTANCE.GetWindowTextLength(hWnd) > 0) {
+                            found.add(hWnd);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    return true;
+                }
+            };
+            User32.INSTANCE.EnumWindows(cb, Pointer.NULL);
+            // 强引用防弱回收：EnumWindows 同步返回后回调已无用，但保持引用直到方法结束
+            if (found.size() == 1) return found.get(0);
+            if (found.size() > 1) {
+                // 多窗口（splash 未销毁、同标题窗口混入）：优先 "类名含 Glass（JavaFX 阶段）+ 标题含 YUCL"
+                for (WinDef.HWND h : found) {
+                    char[] cbuf = new char[64];
+                    int cn = User32.INSTANCE.GetClassName(h, cbuf, cbuf.length);
+                    String cls = new String(cbuf, 0, Math.max(cn, 0));
+                    if (!cls.contains("Glass")) continue;
+                    char[] buf = new char[128];
+                    int n = User32.INSTANCE.GetWindowText(h, buf, buf.length);
+                    if (new String(buf, 0, Math.max(n, 0)).contains("YUCL")) return h;
+                }
+                for (WinDef.HWND h : found) {
+                    char[] buf = new char[128];
+                    int n = User32.INSTANCE.GetWindowText(h, buf, buf.length);
+                    if (new String(buf, 0, Math.max(n, 0)).contains("YUCL")) return h;
+                }
+                return found.get(0);
+            }
+            return null;
+        } catch (Throwable t) {
+            log.warn("findByCurrentProcess failed: {}", t.toString());
+            return null;
+        }
     }
 
     /** WM_GETMINMAXINFO 结构体（JNA 5.14 未封装） */
@@ -320,14 +387,19 @@ public final class NativeWindow implements AutoCloseable {
     public static NativeWindow install(String title, int border, int titleBarH, int rightButtonsW) {
         try {
             User32 u32 = User32.INSTANCE;
+            // FindWindow(Unicode 标题) 在跨进程/ANSI-marshaling 下可能返回垃圾句柄——
+            // 必须验证"属于本进程"才信任，否则走 EnumWindows+PID 兜底（可靠路径）
             WinDef.HWND h = u32.FindWindow(null, title);
+            if (h == null || !isOurs(h)) {
+                h = findByCurrentProcess();
+            }
             if (h == null || h.getPointer() == null || h.getPointer().equals(Pointer.NULL)) {
-                logDebug("FindWindow returned null for title=" + title);
+                log.warn("NativeWindow install FAILED: no top-level window found in this process (title=[{}])", title);
                 return null;
             }
             BaseTSD.LONG_PTR oldProc = u32.GetWindowLongPtr(h, GWL_WNDPROC);
             if (oldProc == null || oldProc.longValue() == 0L) {
-                logDebug("GetWindowLongPtr returned 0/null");
+                log.warn("NativeWindow install FAILED: GetWindowLongPtr(GWL_WNDPROC)=0 for hwnd={} (in-process read)", h);
                 return null;
             }
             // 保险：确保 WS_THICKFRAME 存在（框架 resize 循环的前提；幂等）
