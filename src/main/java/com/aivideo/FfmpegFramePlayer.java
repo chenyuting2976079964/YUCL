@@ -465,6 +465,17 @@ public final class FfmpegFramePlayer {
         muted = m; // 写循环每 64KB 块检查一次，静音即时生效（写零数据，不漂移）
     }
 
+    /** 当前播放状态（idle/playing/paused/ended/error）——按钮埋点用 */
+    public static String stateOf(FfmpegFramePlayer p) {
+        try {
+            java.lang.reflect.Field f = FfmpegFramePlayer.class.getDeclaredField("state");
+            f.setAccessible(true);
+            return String.valueOf(f.get(p));
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
     public void close() {
         userStopped = true;
         killProcesses();

@@ -76,16 +76,21 @@ public final class NativePlayerOverlay extends StackPane {
         Tooltip.install(muteBtn, new Tooltip("静音 / 取消静音"));
         muteBtn.setOnAction(e -> {
             if (player == null) {
+                FfmpegFramePlayer.trace("mute click: player==null（播放器未启动/已退出）");
                 return;
             }
             mutedState = !mutedState;
+            FfmpegFramePlayer.trace("mute click -> " + mutedState);
             player.setMute(mutedState);
             muteBtn.setText(mutedState ? "🔇" : "🔊");
         });
         Button closeBtn = new Button("✕");
         closeBtn.setStyle(miniBtn + " -fx-font-size:14;");
         Tooltip.install(closeBtn, new Tooltip("关闭原生播放器"));
-        closeBtn.setOnAction(e -> this.close());
+        closeBtn.setOnAction(e -> {
+            FfmpegFramePlayer.trace("close click");
+            this.close();
+        });
         HBox topBar = new HBox(8, titleLabel, topSpacer, muteBtn, closeBtn);
         topBar.setPadding(new Insets(0, 10, 0, 12));
         topBar.setMinHeight(TOP_H); topBar.setPrefHeight(TOP_H); topBar.setMaxHeight(TOP_H);
@@ -106,17 +111,25 @@ public final class NativePlayerOverlay extends StackPane {
         playBtn = new Button("▶");
         playBtn.setStyle("-fx-background-color:transparent; -fx-text-fill:#e6ebff; -fx-font-size:18; -fx-cursor:hand; -fx-background-radius:6; -fx-padding:6;");
         Tooltip.install(playBtn, new Tooltip("播放 / 暂停"));
-        playBtn.setOnAction(e -> togglePlay());
+        playBtn.setOnAction(e -> {
+            FfmpegFramePlayer.trace("play click (state=" + (player == null ? "null" : FfmpegFramePlayer.stateOf(player)) + ")");
+            togglePlay();
+        });
         seek = new Slider(0, 1, 0);
         HBox.setHgrow(seek, javafx.scene.layout.Priority.ALWAYS);
         seek.setPrefHeight(BAR_H);
         seek.setOnMousePressed(e2 -> {
-            seeking = true;
+            seeking = true; // 拖动中 uiTick 不覆盖 Slider，保留用户拖到的位置
+        });
+        seek.setOnMouseReleased(e2 -> {
+            seeking = false;
+            // seek 在"释放时"才执行：按下瞬间 value 还是旧位置（点了没反应/拖不动的根因）；
+            // 释放时 value 才是用户拖到的目标位置
             if (player != null && Double.isFinite(seek.getMax()) && seek.getMax() > 0) {
+                FfmpegFramePlayer.trace("seek release -> " + String.format(java.util.Locale.ROOT, "%.2f", seek.getValue()));
                 player.seekTo(seek.getValue());
             }
         });
-        seek.setOnMouseReleased(e2 -> seeking = false);
         timeLabel = new Label("--:-- / --:--");
         timeLabel.setStyle("-fx-font-size:11; -fx-text-fill:#7c86a5;");
         HBox bar = new HBox(10, playBtn, seek, timeLabel);
@@ -152,6 +165,7 @@ public final class NativePlayerOverlay extends StackPane {
             return;
         }
         embedded = true;
+        FfmpegFramePlayer.trace("embedAt " + (int) x + "," + (int) y + " " + (int) w + "x" + (int) h);
         // 卡片尺寸 = 框尺寸（内容被顶栏 36 + 控制栏 44 压缩，视频区 letterbox）
         cardBox.setPrefSize(w, h);
         cardBox.setMinSize(w, h);
@@ -187,6 +201,7 @@ public final class NativePlayerOverlay extends StackPane {
             return;
         }
         embedded = false;
+        FfmpegFramePlayer.trace("unembed -> centered card");
         cardBox.setPrefSize(CARD_W, TOP_H + VIDEO_H + BAR_H);
         cardBox.setMinSize(CARD_W, TOP_H + VIDEO_H + BAR_H);
         cardBox.setMaxSize(CARD_W, TOP_H + VIDEO_H + BAR_H);

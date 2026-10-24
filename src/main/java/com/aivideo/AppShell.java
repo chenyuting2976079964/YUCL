@@ -84,6 +84,8 @@ extends Application {
     private Stage stage;
     private NativeWindow nativeWindow;
     private NativePlayerOverlay playerOverlay;
+    /** 主 WebView（executeScript 主动查询"视频框 rect"用；start() 中赋值） */
+    private WebView webView;
     /** 把 JS 上报的播放器框 rect 应用到浮层（start() 中初始化） */
     private Runnable applyLastPlayerRectHook = () -> {
     };
@@ -93,9 +95,12 @@ extends Application {
     public static volatile java.util.function.Function<String, String> sceneSnapshotHook;
     /** JS 上报的 <video> 元素视口 rect（{x,y,w,h}）——原生浮层"框内播放"定位用；null = 尚未上报 */
     public static volatile double[] lastPlayerRect;
+    /** lastPlayerRect 的上报时刻（毫秒）——嵌入时超过 5s 未刷新视为过期（页面已无视频），退回居中 */
+    public static volatile long lastPlayerRectAt = 0L;
 
     public static void setLastPlayerRect(double[] r) {
         AppShell.lastPlayerRect = r;
+        AppShell.lastPlayerRectAt = System.currentTimeMillis();
     }
 
     public AppShell(String baseUrl, Runnable onShutdown) {
@@ -123,6 +128,7 @@ extends Application {
         s.setWidth(geo[0] / this.outScale);
         s.setHeight(geo[1] / this.outScale);
         WebView view = new WebView();
+        this.webView = view; // 保存引用：原生浮层"嵌入视频框"时 executeScript 主动查询 rect
         // WebView 在任何窗口尺寸下都必须铺满内容区（StackPane 按 max 约束摆放子节点），
         // 否则拉大/拉小窗口后 WebView 停留在首选尺寸，露出 Scene 背景（"空白带"根因之一）
         view.setMinWidth(0.0);
@@ -187,6 +193,11 @@ extends Application {
         //    （ApiController.NATIVE_PLAY_QUEUE）→ 本 Timeline 每 300ms 出队一次 ──
         this.playerOverlay = new NativePlayerOverlay();
         root.getChildren().add(this.playerOverlay); // 最上层；隐藏时 pickOnBounds=false 不挡网页点击
+        // 诊断探针：记录每次鼠标按下的命中节点与坐标（排查"点了没反应"——看事件到底落在谁身上）
+        root.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
+            com.aivideo.FfmpegFramePlayer.trace("FX press rootXY=" + (int) e.getX() + "," + (int) e.getY()
+                    + " target=" + (e.getTarget() == null ? "none" : e.getTarget().getClass().getSimpleName()));
+        });
         // ── 原生播放器触发：进程内直连（替代旧的"队列→HTTP 自环"跨实例路径）──
         // JS POST /playtest/native-request → ApiController 直接回调到这里（同一 JVM），
         // 本窗口所属进程查 Jobs 拿视频路径 → FX 线程开浮层。双开窗口时也开在"被点窗口"里。
@@ -238,13 +249,7 @@ extends Application {
                 }
             });
         });
-        this.applyLastPlayerRectHook = () -> {
-            double[] r = AppShell.lastPlayerRect;
-            if (r == null || !(r[2] >= 240) || !(r[3] >= 160)) {
-                return; // 未上报过 / rect 非法 → 保持居中卡片
-            }
-            this.playerOverlay.embedAt(r[0], r[1], r[2], r[3]);
-        };
+        this.applyLastPlayerRectHook = () -> this.embedOverlayToPlayerFrame();
         // 旧队列轮询保留为兜底（钩子异常时 POST 退回队列；同窗口内也能开）
         new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.millis(300L), e3 -> {
             String jobId = com.aivideo.ApiController.nativePlayQueuePop();
@@ -570,6 +575,58 @@ extends Application {
         b.setPrefSize(size, 40.0);
         b.setStyle("-fx-background-color: " + bg + "; -fx-cursor: hand; -fx-background-radius: 6;");
         return b;
+    }
+
+    /** 把原生浮层嵌入"当前视频播放框"（必须在 FX 线程调用；由 open 的 runLater 块执行）。
+     *  定位优先级：
+     *   1) 主动查询：executeScript 读页面里 <video> 的 getBoundingClientRect（本构建 WebEngine
+     *      用 executeScript(返回 Object) 代替 evaluateJavascript）——打开时刻的精确位置；
+     *   2) JS 持续上报缓存（lastPlayerRect）——5 秒内刷新过才用（页面已无视频/离开编辑器则过期）；
+     *   3) 都没有 → 保持居中卡片。
+     *  后续页面滚动/缩放时，上报钩子会再调 embedAt 跟随。 */
+    private void embedOverlayToPlayerFrame() {
+        if (this.playerOverlay == null || this.webView == null) {
+            return;
+        }
+        double[] r = null;
+        try {
+            String js = "(function(){var v=document.querySelector('.player.has-video video')"
+                    + "||document.querySelector('video');if(!v)return 'null';"
+                    + "var b=v.getBoundingClientRect();"
+                    + "if(b.width<50||b.height<50)return 'null';"
+                    + "return JSON.stringify({x:b.left,y:b.top,w:b.width,h:b.height});})()";
+            Object ret;
+            try {
+                ret = this.webView.getEngine().executeScript(js);
+            } catch (NoSuchMethodError nsme) {
+                ret = null;
+            }
+            if (ret instanceof String s && !s.isEmpty() && !s.contains("null")) {
+                com.fasterxml.jackson.databind.JsonNode n = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(s);
+                double x = n.path("x").asDouble(0);
+                double y = n.path("y").asDouble(0);
+                double w = n.path("w").asDouble(0);
+                double h = n.path("h").asDouble(0);
+                if (w >= 200 && h >= 100) {
+                    r = new double[]{x, y, w, h};
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        if (r == null) {
+            double[] cached = AppShell.lastPlayerRect;
+            boolean fresh = System.currentTimeMillis() - AppShell.lastPlayerRectAt < 5000L;
+            if (cached != null && fresh && cached[2] >= 200 && cached[3] >= 100) {
+                r = cached;
+            }
+        }
+        if (r != null) {
+            FfmpegFramePlayer.trace("overlay embed: " + r[0] + "," + r[1] + " " + r[2] + "x" + r[3]);
+            this.playerOverlay.embedAt(r[0], r[1], r[2], r[3]);
+        } else {
+            FfmpegFramePlayer.trace("overlay stays centered (no fresh player frame)");
+        }
     }
 
     private void doExit() {
