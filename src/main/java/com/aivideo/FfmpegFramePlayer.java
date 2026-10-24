@@ -198,20 +198,36 @@ public final class FfmpegFramePlayer {
         }
     }
 
+    /** 视频区尺寸（letterbox 区域）——可被 NativePlayerOverlay.fitToArea 动态更新（嵌入框时） */
+    private volatile double areaW = 640.0, areaH = 318.0;
+
+    /** 重新按视频区 letterbox 适配 canvas 显示尺寸（FX 线程调用）。 */
+    public void fitToArea(double newW, double newH) {
+        if (!(newW >= 40) || !(newH >= 40)) {
+            return;
+        }
+        areaW = newW;
+        areaH = newH;
+        if (w >= 16 && h >= 16) {
+            sizeCanvas();
+        }
+    }
+
     private void sizeCanvas() {
-        // 视频区（卡片中间 640x318）等比适配；Canvas 只显示区大小，
+        // 视频区（当前 areaW×areaH，默认卡片中间 640x318）等比适配；Canvas 只显示区大小，
         // WritableImage 保持视频原生分辨率（drawImage 时缩放）——
         // 之前误把 WritableImage 建成显示区大小，setPixels(w,h) 越界异常，帧永远画不上
-        double areaW = 640.0, areaH = 318.0;
         double s = Math.min(areaW / w, areaH / h);
         double cw = Math.max(16, Math.round(w * s));
         double ch = Math.max(16, Math.round(h * s));
         canvas.setWidth(cw);
         canvas.setHeight(ch);
-        wi = new WritableImage(w, h);
-        pw = wi.getPixelWriter();
+        if (wi == null) {
+            wi = new WritableImage(w, h);
+            pw = wi.getPixelWriter();
+        }
         gc.clearRect(0, 0, cw, ch);
-        trace("canvas sized " + (int) cw + "x" + (int) ch + " (video " + w + "x" + h + ")");
+        trace("canvas sized " + (int) cw + "x" + (int) ch + " (video " + w + "x" + h + ", area " + (int) areaW + "x" + (int) areaH + ")");
     }
 
     /** 从 fromSec 秒重启两路管道（fromSec=0 且 firstOpen 走首开路径）。 */

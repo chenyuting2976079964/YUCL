@@ -9,7 +9,7 @@
         </div>
         <video ref="vid" v-show="current" controls style="max-height:64vh"></video>
         <div class="meta">
-          <button v-if="current" type="button" id="player-native" class="chipbtn" title="内置网页播放黑屏时用原生播放器（Windows 系统解码器，H.264/MPEG-4 全支持）" @click="requestNative(false)">⚡&emsp;原生播放器</button>
+          <button v-if="current" type="button" id="player-native" class="chipbtn accent" title="内置网页黑屏？点我：随包 ffmpeg 直接解码渲染（H.264/HEVC/任何编码都行，原画无转码）" @click="requestNative(false)">⚡&emsp;原生播放器</button>
           <button v-if="current" type="button" id="player-open" class="chipbtn" title="窗口内播放异常、或想用完整功能（字幕轨道等）时，用系统浏览器打开" @click="openInBrowser">⇕&emsp;在系统浏览器打开</button>
           <span v-if="playerHint" class="phint">{{ playerHint }}</span>
           <template v-if="meta">
@@ -35,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, baseUrl, type Job, type MediaMeta } from "../api";
 import { useAppStore } from "../store";
 import { uiAlert, uiConfirm } from "../dialogs";
@@ -67,6 +67,20 @@ function onStreamError() {
     }
     playerHint.value = "⚠ 窗口内网页播放器无法播放此视频（编码不受支持）——点「⚡ 原生播放器」或用系统浏览器打开。";
   }
+}
+// WebEngine 对 H.264 常常静默黑屏（不抛 JS error 事件）——3 秒还没解码成功就自动降级
+let fallbackTimer = 0;
+function armNativeFallback() {
+  if (fallbackTimer) window.clearTimeout(fallbackTimer);
+  fallbackTimer = window.setTimeout(() => {
+    fallbackTimer = 0;
+    const v = vid.value;
+    const alive = v && v.readyState >= 2 && (!v.paused || v.currentTime > 0.05);
+    if (!alive && activeJobId.value && !nativeRequested.value.has(activeJobId.value)) {
+      nativeRequested.value.add(activeJobId.value);
+      requestNative(true);
+    }
+  }, 3000);
 }
 async function requestNative(auto: boolean) {
   if (!activeJobId.value) return;
@@ -106,6 +120,7 @@ function onSelect(jobId: string, m?: unknown) {
 }
 async function playUri(uri: string, m?: MediaMeta) {
   meta.value = m || null;
+  armNativeFallback(); // 选片即挂 3s 保底：黑屏（无 error 事件）也能自动切原生播放器
   try {
     const r = await fetch(uri);
     if (r.ok) {
@@ -175,8 +190,63 @@ async function del(id: string) {
   } else await uiAlert("删除失败：" + (j.error || j.detail || "未知错误"));
 }
 
+// ── 播放器框位置上报：原生播放器"框内播放"依赖 —— 持续把 <video> 元素的视口 rect
+//    （= WebView root 坐标，CSS px 1:1）POST 给后端；浮层打开时嵌入该框，
+//    滚动/缩放/切作品自动跟到新位置。未打开浮层时后端只缓存、不消耗。──
+const rectState = { x: 0, y: 0, w: 0, h: 0, timer: 0, ro: null as ResizeObserver | null, lastSent: "" };
+function reportPlayerRect() {
+  const v = vid.value;
+  if (!v || !current.value) return;
+  const r = v.getBoundingClientRect();
+  const x = Math.round(r.left), y = Math.round(r.top), w = Math.round(r.width), h = Math.round(r.height);
+  const key = x + "," + y + "," + w + "," + h;
+  if (key === rectState.lastSent) return; // 无变化不上报
+  rectState.x = x; rectState.y = y; rectState.w = w; rectState.h = h;
+  rectState.lastSent = key;
+  if (rectState.timer) return; // 已在节流窗口内
+  rectState.timer = window.setTimeout(() => {
+    rectState.timer = 0;
+    const s = JSON.stringify({ x: rectState.x, y: rectState.y, w: rectState.w, h: rectState.h });
+    fetch(baseUrl + "/playtest/player-rect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: s,
+    }).catch(() => { /* 后端暂不可达，静默 */ });
+  }, 250);
+}
+watch(current, (val) => {
+  if (!val) {
+    rectState.lastSent = "";
+    return;
+  }
+  nextTick(() => {
+    const v = vid.value;
+    if (!v) return;
+    if (!rectState.ro) {
+      rectState.ro = new ResizeObserver(reportPlayerRect);
+    }
+    rectState.ro.disconnect();
+    rectState.ro.observe(v);
+    rectState.lastSent = ""; // 强制重新上报
+    reportPlayerRect();
+  });
+});
+onMounted(() => {
+  document.addEventListener("scroll", reportPlayerRect, { capture: true, passive: true });
+  window.addEventListener("resize", reportPlayerRect, { passive: true });
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("scroll", reportPlayerRect, { capture: true } as any);
+  window.removeEventListener("resize", reportPlayerRect);
+  rectState.ro?.disconnect();
+  if (rectState.timer) window.clearTimeout(rectState.timer);
+});
+
 onMounted(() => {
   vid.value?.addEventListener("error", onStreamError);
+  vid.value?.addEventListener("playing", () => {
+    if (fallbackTimer) { window.clearTimeout(fallbackTimer); fallbackTimer = 0; } // 能播就不降级
+  });
   store.loadJobs();
 });
 </script>

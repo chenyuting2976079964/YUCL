@@ -51,6 +51,11 @@ public final class NativePlayerOverlay extends StackPane {
     private final Button muteBtn;
     private final Slider seek;
     private final StackPane videoArea;
+    /** 嵌入模式（"在播放器框内播放"）：卡片定位到网页播放器框，顶栏透明悬浮 */
+    private boolean embedded = false;
+    private javafx.scene.layout.VBox cardBox;
+    private javafx.scene.layout.HBox topBarNode;
+    private javafx.scene.layout.HBox barNode;
 
     public NativePlayerOverlay() {
         // ── 卡片 ──
@@ -86,6 +91,7 @@ public final class NativePlayerOverlay extends StackPane {
         topBar.setMinHeight(TOP_H); topBar.setPrefHeight(TOP_H); topBar.setMaxHeight(TOP_H);
         topBar.setAlignment(Pos.CENTER_LEFT);
         topBar.setStyle("-fx-background-color:#10152a; -fx-background-radius:10 10 0 0;");
+        topBarNode = topBar;
 
         // ── 视频区（黑色信箱底；ffmpeg 解码帧画到 Canvas，等比居中）──
         videoArea = new StackPane();
@@ -118,8 +124,10 @@ public final class NativePlayerOverlay extends StackPane {
         bar.setMinHeight(BAR_H); bar.setPrefHeight(BAR_H); bar.setMaxHeight(BAR_H);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setStyle("-fx-background-color:#10152a; -fx-background-radius:0 0 10 10;");
+        barNode = bar;
 
         card.getChildren().addAll(topBar, videoArea, bar);
+        cardBox = card;
 
         // ── 外层：铺满 WebView 区域，但透明不抢点击 ──
         setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
@@ -135,9 +143,69 @@ public final class NativePlayerOverlay extends StackPane {
         tick.setCycleCount(Timeline.INDEFINITE);
     }
 
+    /** 嵌入模式：把卡片定位到网页播放器框（root 坐标系 = WebView 视口坐标系，CSS px 1:1）。
+     *  顶栏变透明悬浮、卡片去阴影、尺寸=框尺寸；视频区 letterbox 铺满剩余空间。
+     *  非法 rect（过小）自动退回居中卡片。可重复调用（跟随滚动/缩放）。 */
+    public void embedAt(double x, double y, double w, double h) {
+        if (w < 240 || h < 160 || !(w > 0) || !(h > 0)) {
+            this.unembed();
+            return;
+        }
+        embedded = true;
+        // 卡片尺寸 = 框尺寸（内容被顶栏 36 + 控制栏 44 压缩，视频区 letterbox）
+        cardBox.setPrefSize(w, h);
+        cardBox.setMinSize(w, h);
+        cardBox.setMaxSize(w, h);
+        cardBox.setStyle("-fx-background-color:#000; -fx-background-radius:8; -fx-border-color:#243052; -fx-border-radius:8; -fx-border-width:1;");
+        // 顶栏透明（悬浮在视频上，保留 标题/静音/关闭 操作）
+        topBarNode.setStyle("-fx-background-color:transparent; -fx-background-radius:8 8 0 0;");
+        videoArea.setPrefSize(w, h - TOP_H - BAR_H);
+        videoArea.setMinSize(w, h - TOP_H - BAR_H);
+        videoArea.setMaxSize(w, h - TOP_H - BAR_H);
+        // 定位：本 overlay 铺满 root（StackPane 居中放卡片）→ 用 translate 把卡片左上角挪到 (x, y)。
+        // 注意：刚 open() 后同脉冲调用时 overlay 尚未布局（getWidth()=0），居中偏移量算错
+        // 会把卡片甩到右下——此时退回用父节点（root StackPane，启动即已布局）的尺寸。
+        double ow = this.getWidth();
+        double oh = this.getHeight();
+        if ((ow <= 1 || oh <= 1) && this.getParent() instanceof javafx.scene.layout.Region pn) {
+            ow = pn.getWidth();
+            oh = pn.getHeight();
+        }
+        double cx = x - (ow - w) / 2.0;
+        double cy = y - (oh - h) / 2.0;
+        cardBox.setTranslateX(cx);
+        cardBox.setTranslateY(cy);
+        // 视频区内的 canvas 重新 letterbox（显示尺寸跟随视频区）
+        if (player != null) {
+            player.fitToArea(w, h - TOP_H - BAR_H);
+        }
+    }
+
+    /** 退出嵌入模式：恢复居中卡片外观。 */
+    public void unembed() {
+        if (!embedded) {
+            return;
+        }
+        embedded = false;
+        cardBox.setPrefSize(CARD_W, TOP_H + VIDEO_H + BAR_H);
+        cardBox.setMinSize(CARD_W, TOP_H + VIDEO_H + BAR_H);
+        cardBox.setMaxSize(CARD_W, TOP_H + VIDEO_H + BAR_H);
+        cardBox.setStyle("-fx-background-color:#0d1120; -fx-background-radius:10; -fx-border-color:#243052; -fx-border-radius:10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,.55), 28, 0, 0, 6);");
+        topBarNode.setStyle("-fx-background-color:#10152a; -fx-background-radius:10 10 0 0;");
+        videoArea.setPrefSize(CARD_W, VIDEO_H);
+        videoArea.setMinSize(CARD_W, VIDEO_H);
+        videoArea.setMaxSize(CARD_W, VIDEO_H);
+        cardBox.setTranslateX(0);
+        cardBox.setTranslateY(0);
+        if (player != null) {
+            player.fitToArea(CARD_W, VIDEO_H);
+        }
+    }
+
     /** 显示浮层并播放本地文件。重复调用会先停掉上一段。 */
     public void open(String path, String title) {
         this.disposeMedia();
+        this.unembed(); // 新一段播放从居中卡片开始；AppShell 有最新 rect 会立即 embedAt
         titleLabel.setText(title == null || title.isEmpty() ? path : title);
         mutedState = false;
         muteBtn.setText("🔊");

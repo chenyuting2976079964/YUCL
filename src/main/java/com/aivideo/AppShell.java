@@ -84,10 +84,19 @@ extends Application {
     private Stage stage;
     private NativeWindow nativeWindow;
     private NativePlayerOverlay playerOverlay;
+    /** 把 JS 上报的播放器框 rect 应用到浮层（start() 中初始化） */
+    private Runnable applyLastPlayerRectHook = () -> {
+    };
     private double outScale = 1.0;
     public static volatile Runnable windowResetHook;
     /** 场景快照钩子：name → 保存的 PNG 绝对路径（必须 FX 线程调用；AppShell 启动时注册） */
     public static volatile java.util.function.Function<String, String> sceneSnapshotHook;
+    /** JS 上报的 <video> 元素视口 rect（{x,y,w,h}）——原生浮层"框内播放"定位用；null = 尚未上报 */
+    public static volatile double[] lastPlayerRect;
+
+    public static void setLastPlayerRect(double[] r) {
+        AppShell.lastPlayerRect = r;
+    }
 
     public AppShell(String baseUrl, Runnable onShutdown) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
@@ -201,6 +210,10 @@ extends Application {
                     Platform.runLater(() -> {
                         try {
                             this.playerOverlay.open(fp, ft);
+                            // 框内播放：用 JS 上报的"当前视频框"坐标把浮层嵌入框内
+                            // （PlayerPanel.vue 的 ResizeObserver/滚动/缩放 持续 POST
+                            //   /playtest/player-rect → AppShell.lastPlayerRect；没上报过 → 居中）
+                            this.applyLastPlayerRectHook.run();
                             trace("native player open: " + fp + " (pid=" + ProcessHandle.current().pid() + ")");
                         } catch (Throwable ex) {
                             trace("native player open FAILED: " + ex);
@@ -212,6 +225,26 @@ extends Application {
                 }
             }, "yucl-native-hook").start();
         });
+        // 播放器框 rect 上报：JS 持续 POST /playtest/player-rect（<video> 视口坐标）→ 浮层打开时
+        // 嵌入框内播放；未打开时仅缓存。坐标说明：embedAt 使用 root(StackPane) local 坐标系，
+        // 而 root 恰好就是 WebView 容器（标题栏在它上面的 outer 里），所以 JS 视口坐标 1:1 直接用。
+        com.aivideo.ApiController.registerPlayerRectHook(rect -> {
+            Platform.runLater(() -> {
+                if (this.playerOverlay == null) {
+                    return;
+                }
+                if (this.playerOverlay.isVisible()) {
+                    this.playerOverlay.embedAt(rect[0], rect[1], rect[2], rect[3]);
+                }
+            });
+        });
+        this.applyLastPlayerRectHook = () -> {
+            double[] r = AppShell.lastPlayerRect;
+            if (r == null || !(r[2] >= 240) || !(r[3] >= 160)) {
+                return; // 未上报过 / rect 非法 → 保持居中卡片
+            }
+            this.playerOverlay.embedAt(r[0], r[1], r[2], r[3]);
+        };
         // 旧队列轮询保留为兜底（钩子异常时 POST 退回队列；同窗口内也能开）
         new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.millis(300L), e3 -> {
             String jobId = com.aivideo.ApiController.nativePlayQueuePop();
@@ -230,6 +263,7 @@ extends Application {
             Platform.runLater(() -> {
                 try {
                     this.playerOverlay.open(fp, ft);
+                    this.applyLastPlayerRectHook.run();
                     trace("native player open (queue fallback): " + fp);
                 } catch (Throwable ex) {
                     trace("native player open FAILED (queue): " + ex);

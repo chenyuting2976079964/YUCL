@@ -1482,8 +1482,50 @@ public class ApiController {
      *  （旧路径是队列→跨实例/HTTP 自环，双开窗口时浮层会开错窗口） */
     private static volatile java.util.function.Consumer<String> nativePlayHook;
 
+    /** 播放器框位置上报钩子（JS 持续上报 <video> 元素的视口 rect → 原生浮层嵌入框内播放） */
+    private static volatile java.util.function.Consumer<double[]> playerRectHook;
+
     public static void registerNativePlayHook(java.util.function.Consumer<String> h) {
         nativePlayHook = h;
+    }
+
+    public static void registerPlayerRectHook(java.util.function.Consumer<double[]> h) {
+        playerRectHook = h;
+    }
+
+    /** 从请求体取 double（缺失/非数字 → 0.0） */
+    static double dblOf(Object o) {
+        if (o instanceof Number n) {
+            return n.doubleValue();
+        }
+        if (o instanceof String s) {
+            try {
+                return Double.parseDouble(s.trim());
+            } catch (Exception e) {
+                return 0.0;
+            }
+        }
+        return 0.0;
+    }
+
+    @PostMapping(value={"/playtest/player-rect"})
+    public Map<String, Object> playerRectSet(@RequestBody Map<String, Object> body) {
+        double x = ApiController.dblOf(body.get("x"));
+        double y = ApiController.dblOf(body.get("y"));
+        double w = ApiController.dblOf(body.get("w"));
+        double h = ApiController.dblOf(body.get("h"));
+        if (!(w >= 10) || !(h >= 10)) {
+            return Map.of("ok", false, "error", "rect 过小，忽略");
+        }
+        com.aivideo.AppShell.setLastPlayerRect(new double[]{x, y, w, h});
+        java.util.function.Consumer<double[]> hk = playerRectHook;
+        if (hk != null) {
+            try {
+                hk.accept(new double[]{x, y, w, h});
+            } catch (Exception ignored) {
+            }
+        }
+        return Map.of("ok", true);
     }
 
     public static void nativePlayQueuePush(String jobId) {
