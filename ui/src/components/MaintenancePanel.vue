@@ -13,7 +13,7 @@
         </div>
         <button type="button" class="cb-addbtn" style="width:100%;padding:8px 14px" @click="viewLogs">查看日志（最近 200 行）</button>
         <div v-if="showLogs">
-          <pre style="max-height:260px;overflow:auto;font-size:11.5px;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:8px;margin:6px 0 0;white-space:pre-wrap;word-break:break-all">{{ logText }}</pre>
+          <pre style="max-height:260px;overflow:auto;font-size:12.5px;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:8px;margin:6px 0 0;white-space:pre-wrap;word-break:break-all">{{ logText }}</pre>
           <button type="button" class="cb-addbtn" style="width:auto;padding:8px 14px;margin-top:6px" @click="copyLogs">复制日志</button>
         </div>
         <a class="cb-addbtn" style="display:block;width:100%;padding:8px 14px;text-align:center" href="manual.html" target="_blank">📖 用户手册 ↗</a>

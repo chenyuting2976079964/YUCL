@@ -181,7 +181,7 @@ function loadAppear(): Appearance {
 export function applyAppearance(a: Appearance) {
   const r = document.documentElement;
   r.style.setProperty("--accent", a.accent);
-  r.style.setProperty("font-size", a.font === "large" ? "15.5px" : "14px");
+  r.style.setProperty("font-size", a.font === "large" ? "17px" : "15px");
   r.dataset.density = a.density;
   localStorage.setItem("yucl_appearance", JSON.stringify(a));
 }

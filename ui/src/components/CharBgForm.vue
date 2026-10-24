@@ -86,7 +86,7 @@
         <div class="field">
           <label class="lbl">{{ t("char_scale") }}</label>
           <input type="range" v-model.number="charScale" min="0.4" max="0.9" step="0.05">
-          <div style="font-size:11px;color:var(--dim2);margin-top:4px">占画面高度比例 · 越大越近 <b style="color:var(--fg)">{{ charScale.toFixed(2) }}</b></div>
+          <div style="font-size:12px;color:var(--dim2);margin-top:4px">占画面高度比例 · 越大越近 <b style="color:var(--fg)">{{ charScale.toFixed(2) }}</b></div>
         </div>
         <div class="field">
           <label class="lbl">{{ t("char_pos") }}</label>
@@ -96,7 +96,7 @@
             <option value="bottom-right">{{ t("pos_br") }}</option>
             <option value="center">{{ t("pos_c") }}</option>
           </select>
-          <div style="font-size:11px;color:var(--dim2);margin-top:4px">两人同框时自动左/右分置</div>
+          <div style="font-size:12px;color:var(--dim2);margin-top:4px">两人同框时自动左/右分置</div>
         </div>
       </div>
       <label class="check"><input type="checkbox" v-model="subtitles"> {{ t("subtitles") }}</label>

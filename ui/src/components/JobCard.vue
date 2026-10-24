@@ -20,11 +20,11 @@
     <div class="m">
       <template v-if="running">
         <div class="job-prog" style="width:100%"><div :style="{ width: pct + '%' }"></div></div>
-        <div class="hint" style="font-size:11px">{{ job.progress?.message || '渲染中…' }}</div>
+        <div class="hint" style="font-size:12px">{{ job.progress?.message || '渲染中…' }}</div>
         <button type="button" class="job-act warn" @click.stop="$emit('cancel', job.id)">取消任务</button>
       </template>
       <template v-else-if="failed">
-        <div class="hint" style="font-size:11px">{{ job.status === 'cancelled' ? '已手动取消' : (job.error || '生成失败') }}</div>
+        <div class="hint" style="font-size:12px">{{ job.status === 'cancelled' ? '已手动取消' : (job.error || '生成失败') }}</div>
         <button type="button" class="job-act" @click.stop="$emit('retry', job.id)">重试</button>
       </template>
       <template v-else>

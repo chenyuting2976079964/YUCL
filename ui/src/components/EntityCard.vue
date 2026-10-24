@@ -20,7 +20,7 @@
         </template>
         <template v-else>
           <input ref="fileInp" type="file" class="cb-file" accept=".png,.jpg,.jpeg,.webp,.gif,.bmp" @change="upload">
-          <div style="font-size:11px;color:var(--dim2);margin-top:5px">
+          <div style="font-size:12px;color:var(--dim2);margin-top:5px">
             {{ entity.path ? t("selected") + "：" + entity.path.split(/[\\/]/).pop() : t("select_file") }}
           </div>
         </template>
@@ -28,7 +28,7 @@
     </div>
     <div v-if="kind === 'chars'" class="cb-voice">
       <span class="cb-vlbl" title="该人物的台词用它朗读（作为「人物1」的镜头时生效）">音源</span>
-      <select v-model="entity.voice" style="flex:1;font-size:11.5px;padding:5px 6px">
+      <select v-model="entity.voice" style="flex:1;font-size:12.5px;padding:5px 6px">
         <option value="">默认（跟随全局旁白声源）</option>
         <optgroup v-if="(options?.voices || []).length" label="系统音色">
           <option v-for="v in options!.voices" :key="v.value" :value="'tts:' + v.value">{{ v.label || v.value }}</option>

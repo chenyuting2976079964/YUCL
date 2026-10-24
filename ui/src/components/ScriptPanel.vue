@@ -7,7 +7,7 @@
       <div style="margin-top:8px">
         <div class="lbl" style="margin-bottom:5px">故事主题 / 想法</div>
         <textarea v-model="topic" rows="3" placeholder="例：60 秒校园能量饮料宣传片，面向大学生，风格热血有趣"
-          style="width:100%;box-sizing:border-box;font-size:12.5px;padding:8px;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--fg);resize:vertical"></textarea>
+          style="width:100%;box-sizing:border-box;font-size:13.5px;padding:8px;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--fg);resize:vertical"></textarea>
         <div class="srow" style="margin-top:6px">
           <select v-model="style">
             <option>产品推介</option><option>故事短剧</option><option>知识科普</option><option>生活 Vlog</option><option>其他</option>
@@ -31,8 +31,8 @@
           <button v-if="script || raw" type="button" class="cb-addbtn" style="width:auto;padding:8px 14px" @click="copy">复制剧本</button>
         </div>
         <div class="status">{{ status }}</div>
-        <div v-if="script" style="margin-top:8px;font-size:12.5px;line-height:1.7">
-          <b style="font-size:14px">{{ script.title || "未命名" }}</b>
+        <div v-if="script" style="margin-top:8px;font-size:13.5px;line-height:1.7">
+          <b style="font-size:15px">{{ script.title || "未命名" }}</b>
           <div v-if="script.logline" class="hint" style="margin-top:2px">{{ script.logline }}</div>
           <div style="margin-top:8px;font-weight:700">人物</div>
           <div v-for="c in script.characters" :key="c.name">
@@ -46,7 +46,7 @@
             {{ x.seconds ? ` · ${x.seconds}s` : "" }}{{ x.character ? ` · <span class="tag">${x.character}</span>` : "" }}
           </div>
         </div>
-        <pre v-else-if="raw" style="white-space:pre-wrap;font-size:12px;color:var(--fg2);margin:8px 0 0">{{ raw }}</pre>
+        <pre v-else-if="raw" style="white-space:pre-wrap;font-size:13px;color:var(--fg2);margin:8px 0 0">{{ raw }}</pre>
       </div>
     </details>
   </div>

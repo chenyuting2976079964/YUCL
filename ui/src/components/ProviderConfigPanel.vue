@@ -7,7 +7,7 @@
       <div style="margin-top:8px">
         <div v-for="(p, i) in provs" :key="p.id" class="prov-card" :data-i="i">
           <div class="srow">
-            <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--fg2);flex:none;width:auto">
+            <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--fg2);flex:none;width:auto">
               <input type="radio" :name="'prov-active-' + i" :value="p.id" :checked="String(active) === String(p.id)"
                      @change="active = String(p.id)">使用此供应商
             </label>
@@ -35,7 +35,7 @@
           </div>
           <div class="srow">
             <button type="button" @click="test(i)">测试连接</button>
-            <span class="hint" style="font-size:11px;white-space:pre-wrap">{{ tests[i] || "" }}</span>
+            <span class="hint" style="font-size:12px;white-space:pre-wrap">{{ tests[i] || "" }}</span>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:4px">
@@ -43,7 +43,7 @@
           <button type="button" class="btn" @click="save">保存模型配置</button>
         </div>
         <div class="status">{{ status }}</div>
-        <div style="font-size:11px;color:var(--dim2);margin-top:8px;line-height:1.6">
+        <div style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.6">
           生图模型走通用 OpenAI 兼容接口（/images/generations）；视频生成需要供应商支持「提交+轮询」协议，不支持的供应商请为该镜头选择「本地合成」引擎。<br>
           API Key 只保存在本机文件（YUCL 数据目录下的 provider-config.json），不会上传任何地方。
         </div>
