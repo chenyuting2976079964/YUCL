@@ -122,6 +122,17 @@ export const api = {
   options: () => fetch(API + "/options", { cache: "no-store" }).then(r => j<Options>(r)),
   agnesaStatus: () => fetch(API + "/agnesa-status").then(r => j<ProviderStatus & { ok: boolean }>(r)),
 
+  /* ---- AE-style projects (home: new / open / recent) ---- */
+  listProjects: () => fetch(API + "/projects").then(r => j<{ ok: boolean; projects: Array<Record<string, unknown>>; detail?: string }>(r)),
+  createProject: (name: string) => fetch(API + "/projects", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name })
+  }).then(r => j<{ ok: boolean; id?: string; name?: string; detail?: string }>(r)),
+  openProject: (id: string) => fetch(API + "/projects/" + encodeURIComponent(id)).then(r => j<{ ok: boolean; id?: string; name?: string; state?: Record<string, unknown>; modified?: string; detail?: string }>(r)),
+  saveProject: (id: string, state: Record<string, unknown>, name?: string) => fetch(API + "/projects/" + encodeURIComponent(id) + "/save", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state, name })
+  }).then(r => j<{ ok: boolean; modified?: string; assets_copied?: number; detail?: string }>(r)),
+  deleteProject: (id: string) => fetch(API + "/projects/" + encodeURIComponent(id), { method: "DELETE" }).then(r => j<{ ok: boolean; detail?: string }>(r)),
+
   script: (b: { topic: string; style: string; shots: number; extra: string; model: string; provider_id: string }) =>
     fetch(API + "/script", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) })
       .then(r => j<{ ok: boolean; script?: ScriptDoc; raw?: string; provider?: string; model?: string; error?: string; detail?: string }>(r)),

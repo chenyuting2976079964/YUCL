@@ -48,6 +48,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 *::-webkit-scrollbar{width:0;height:0;display:none}
 
 /* ---- 布局 ---- */
+.approute{height:100%}
 .wrap{display:grid;grid-template-columns:472px 1fr;height:100%}
 .col{overflow:hidden;padding:24px 26px}
 .col.left{background:var(--bg2);border-right:1px solid rgba(0,0,0,.45)}
@@ -66,6 +67,16 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 
 /* ---- 头部 ---- */
 .head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+/* 项目制：头部项目信息 + 保存/返回 */
+.proj-chip{flex:1;min-width:0;max-width:340px;font-size:12px;font-weight:600;color:var(--fg,#e8ecf4);
+  background:var(--card,#1b2230);border:1px solid var(--border,#263041);border-radius:8px;
+  padding:5px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
+.btn.mini{width:auto;margin-top:0;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:600;
+  background:var(--card,#1b2230);color:var(--fg,#e8ecf4);border:1px solid var(--border,#263041);position:static}
+.btn.mini.primary{background:var(--accent,#4da3ff);border-color:transparent;color:#fff}
+.btn.mini:disabled{cursor:progress;opacity:.7}
+.saved-at{font-size:11px;color:var(--dim,#9aa3b6)}
 .logo{width:40px;height:40px;border-radius:12px;background:var(--grad);display:grid;place-items:center;
   box-shadow:0 6px 18px color-mix(in srgb, var(--a) 30%, transparent),inset 0 1px 0 rgba(255,255,255,.28);flex:0 0 auto}
 .logo svg{width:22px;height:22px}

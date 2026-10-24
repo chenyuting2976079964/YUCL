@@ -104,6 +104,15 @@ defineExpose({
       if (p) local_audio = { _default: p };
     }
     return { voice: v, local_audio };
+  },
+  // 项目制：导出/回填当前旁白声源设置
+  getVoiceState() {
+    return { mode: mode.value, voice: voice.value, libName: libName.value };
+  },
+  applyVoiceState(s: { mode?: string; voice?: string; libName?: string }) {
+    mode.value = s?.mode === "file" ? "file" : "tts";
+    voice.value = s?.voice || "";
+    libName.value = s?.libName || "";
   }
 });
 </script>

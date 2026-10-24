@@ -115,6 +115,14 @@ async function remove() {
 }
 
 defineExpose({
-  exportBgm: () => ({ bgm: bgm.value, bgmVol: bgmVol.value, quality: quality.value, subSize: subSize.value })
+  exportBgm: () => ({ bgm: bgm.value, bgmVol: bgmVol.value, quality: quality.value, subSize: subSize.value }),
+  // 项目制：导出/回填当前 BGM 与导出设置
+  getBgmState: () => ({ bgm: bgm.value, bgmVol: bgmVol.value, quality: quality.value, subSize: subSize.value }),
+  applyBgmState(s: { bgm?: string; bgmVol?: number; quality?: string; subSize?: string }) {
+    bgm.value = s?.bgm || "";
+    bgmVol.value = typeof s?.bgmVol === "number" ? s.bgmVol : 0.18;
+    quality.value = s?.quality || "1080p";
+    subSize.value = s?.subSize || "medium";
+  }
 });
 </script>

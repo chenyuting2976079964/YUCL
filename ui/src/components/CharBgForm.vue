@@ -319,5 +319,83 @@ async function submit() {
   submitting.value = false;
 }
 
-defineExpose({ applyScript });
+defineExpose({
+  applyScript,
+  // 项目制：导出表单完整状态（人物/背景/镜头/画面设置），供 App 组装项目文件
+  getProjectState() {
+    const entOut = (e: CbEntity) => ({
+      name: e.name, src: e.src, prompt: e.prompt,
+      image: e.path ? e.path.split(/[\\/]/).pop() || "" : "",
+      url: e.url || "",
+      path: e.path || "",
+      voice: e.voice || ""
+    });
+    return {
+      characters: chars.value.map(entOut),
+      backgrounds: bgs.value.map(entOut),
+      shots: shots.value.map(s => ({ ...s })),
+      orientation: orientation.value,
+      providerId: provId.value,
+      videoModel: videoModel.value,
+      imgModel: imgModel.value,
+      charScale: charScale.value,
+      charPos: charPos.value,
+      subtitles: subtitles.value,
+      narration: narration.value
+    };
+  },
+  // 项目制：回填表单（"image" 为 media 库裸文件名，后端打开项目时已物化回媒体库）
+  applyProjectState(form: Record<string, any>) {
+    const f = form || {};
+    const mk = (list: any[], kind: "chars" | "bgs") =>
+      (Array.isArray(list) ? list : []).map((e, i) => {
+        const image: string = e?.image || "";
+        const assetUrl: string = e?.asset_url || "";
+        let imgSrc = "";
+        if (assetUrl) imgSrc = baseUrl + assetUrl;
+        else if (image) imgSrc = baseUrl + "/images/preview?name=" + encodeURIComponent(image);
+        else imgSrc = e?.url || "";
+        return {
+          id: e?.id || ++uid,
+          name: e?.name || ((kind === "chars" ? "人物" : "背景") + (i + 1)),
+          src: (e?.src === "upload" ? "upload" : "prompt") as "prompt" | "upload",
+          prompt: e?.prompt || "",
+          path: image || "",          // 裸文件名 → /make-char-bg 按 media 库解析；空则靠 url
+          url: e?.url || "",
+          imgSrc,
+          voice: e?.voice || ""
+        };
+      });
+    chars.value = mk(f.characters, "chars");
+    bgs.value = mk(f.backgrounds, "bgs");
+    if (!chars.value.length) chars.value.push(makeEntity("chars"));
+    if (!bgs.value.length) bgs.value.push(makeEntity("bgs"));
+    uid = Math.max(uid, ...chars.value.map(c => c.id), ...bgs.value.map(b => b.id));
+    shots.value = (Array.isArray(f.shots) && f.shots.length ? f.shots : [])
+      .map((s: any) => ({
+        char: +s?.char || 0, char2: +s?.char2 || 0, bg: +s?.bg || 0,
+        text: s?.text || "", seconds: +s?.seconds || 5, engine: s?.engine || "local"
+      }));
+    if (!shots.value.length) shots.value.push({ char: chars.value[0].id, char2: chars.value[1]?.id || 0, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" });
+    if (f.orientation) orientation.value = f.orientation;
+    if (typeof f.providerId === "string") provId.value = f.providerId;
+    if (typeof f.videoModel === "string") videoModel.value = f.videoModel;
+    if (typeof f.imgModel === "string") imgModel.value = f.imgModel;
+    if (typeof f.charScale === "number") charScale.value = f.charScale;
+    if (typeof f.charPos === "string") charPos.value = f.charPos;
+    if (typeof f.subtitles === "boolean") subtitles.value = f.subtitles;
+    if (typeof f.narration === "boolean") narration.value = f.narration;
+    renderAll();
+  },
+  // 新建项目：恢复默认空模板（与首次启动一致）
+  resetToTemplate() {
+    uid = 0;
+    chars.value = []; bgs.value = [];
+    chars.value = [makeEntity("chars"), makeEntity("chars")];
+    bgs.value = [makeEntity("bgs")];
+    shots.value = [{ char: chars.value[0].id, char2: chars.value[1].id, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" }];
+    orientation.value = "9:16"; provId.value = ""; videoModel.value = ""; imgModel.value = "";
+    charScale.value = 0.68; charPos.value = "bottom-center"; subtitles.value = true; narration.value = true;
+  }
+});
 </script>

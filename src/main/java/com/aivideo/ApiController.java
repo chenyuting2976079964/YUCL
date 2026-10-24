@@ -512,6 +512,79 @@ public class ApiController {
         return this.serveFile(p, "image", range);
     }
 
+    /* ============ AE-style project management (home: new / open / recent) ============ */
+
+    @GetMapping(value={"/projects"})
+    public Map<String, Object> projectsList() {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            out.put("ok", true);
+            out.put("projects", Projects.list());
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("detail", "list projects failed: " + e);
+        }
+        return out;
+    }
+
+    @PostMapping(value={"/projects"})
+    public Map<String, Object> projectsCreate(@RequestBody Map<String, Object> body) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            String name = String.valueOf(body.getOrDefault("name", "未命名项目"));
+            String id = Projects.create(name);
+            out.put("ok", true);
+            out.put("id", id);
+            out.put("name", name);
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("detail", "create project failed: " + e);
+        }
+        return out;
+    }
+
+    @GetMapping(value={"/projects/{id}"})
+    public Map<String, Object> projectsOpen(@PathVariable("id") String id) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            out.putAll(Projects.open(id));
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("detail", "open project failed: " + e);
+        }
+        return out;
+    }
+
+    @PostMapping(value={"/projects/{id}/save"})
+    public Map<String, Object> projectsSave(@PathVariable("id") String id, @RequestBody Map<String, Object> body) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            out.putAll(Projects.save(id, body));
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("detail", "save project failed: " + e);
+        }
+        return out;
+    }
+
+    @DeleteMapping(value={"/projects/{id}"})
+    public Map<String, Object> projectsDelete(@PathVariable("id") String id) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
+        boolean ok = Projects.delete(id);
+        out.put("ok", ok);
+        if (!ok) out.put("detail", "project not found: " + id);
+        return out;
+    }
+
+    @GetMapping(value={"/projects/{id}/asset"}, produces={"image/png"})
+    public ResponseEntity<InputStreamResource> projectsAsset(@PathVariable("id") String id, @RequestParam(name="name", required=false) String name, @RequestHeader(value="Range", required=false) String range) {
+        Path p = Projects.asset(id, name);
+        if (p == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return this.serveFile(p, "image", range);
+    }
+
     @GetMapping(value={"/voices"})
     public Map<String, Object> voicesList() {
         ArrayList out = new ArrayList();
