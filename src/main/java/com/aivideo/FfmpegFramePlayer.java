@@ -286,6 +286,7 @@ public final class FfmpegFramePlayer {
             return;
         }
         this.renderTimer = new javafx.animation.AnimationTimer() {
+            long frames = 0L;
             @Override
             public void handle(long now) {
                 long seq = imgSeq.get();
@@ -295,7 +296,16 @@ public final class FfmpegFramePlayer {
                 lastRenderSeq = seq;
                 WritableImage img = published.get();
                 if (img != null && !userStopped) {
+                    long t0 = System.nanoTime();
                     gc.drawImage(img, 0, 0, canvas.getWidth(), canvas.getHeight());
+                    long drawMs = (System.nanoTime() - t0) / 1_000_000L;
+                    frames++;
+                    // 闪屏诊断：每 60 帧（2s）报一次绘制吞吐与单帧耗时；draw 超 8ms = FX 线程被 UI 事件抢占（画面卡顿/闪烁嫌疑）
+                    if (drawMs >= 8 || frames % 60L == 0) {
+                        FfmpegFramePlayer.trace("draw#" + seq + " " + (img == wiA ? "wiA" : "wiB")
+                                + " " + drawMs + "ms frames=" + frames
+                                + " canvas=" + (int) canvas.getWidth() + "x" + (int) canvas.getHeight());
+                    }
                 }
             }
         };
@@ -341,14 +351,25 @@ public final class FfmpegFramePlayer {
                 // 按帧率限速：不限速会"快放"完所有帧，画面一闪而过、与音频严重失步
                 long intervalMs = Math.max(1L, Math.round(1000.0 / fps));
                 long nextDraw = System.currentTimeMillis();
+                long lastFrameAt = 0L;
                 boolean tracedFrame = false;
                 // 双图池：解码线程写"另一张"（PixelWriter 跨线程安全），发布后由
                 // AnimationTimer（FX 专属渲染定时器）draw —— 帧不再进 UI 事件队列排队，
                 // 控制/拖动/滚动与渲染互不阻塞（ExoPlayer 式解码/渲染分离）
                 ensureImagePool();
                 while (!userStopped) {
-                    awaitUnpaused(); // 暂停：停止读管道 → ffmpeg 背压 → 管线原地冻结（续播零重启）
+                    boolean froze = awaitUnpaused(); // 暂停：停止读管道 → ffmpeg 背压 → 管线原地冻结（续播零重启）
                     if (userStopped) break;
+                    if (froze) {
+                        // 续播对齐：冻结期间 ffmpeg 把"半帧"写进管道缓冲（<1 帧残留）。
+                        // 不丢的话 readNBytes 会把"旧帧尾巴+新帧头"拼成一帧 → 画面糊/闪一下。
+                        int avail = in.available();
+                        if (avail > 0 && avail < cur.length) {
+                            in.readNBytes(new byte[avail], 0, avail);
+                            nextDraw = System.currentTimeMillis();
+                            trace("resume: dropped " + avail + "B pipe residue");
+                        }
+                    }
                     if (in.readNBytes(cur, 0, cur.length) != cur.length) break;
                     frameCount++;
                     WritableImage target = (published.get() == wiA) ? wiB : wiA;
@@ -361,6 +382,12 @@ public final class FfmpegFramePlayer {
                         trace("first frame ready (" + w + "x" + h + " @ " + fps + "fps)");
                     }
                     cur = (cur == bufA) ? bufB : bufA;
+                    // 闪屏诊断：解码侧两帧间隔 > 2×帧间隔 = 卡帧（画面停顿/闪烁的源头）
+                    long nowAt = System.currentTimeMillis();
+                    if (lastFrameAt > 0 && nowAt - lastFrameAt > intervalMs * 2 + 15) {
+                        trace("frame-gap " + (nowAt - lastFrameAt) + "ms (expect ~" + intervalMs + "ms) @frame " + frameCount);
+                    }
+                    lastFrameAt = nowAt;
                     nextDraw += intervalMs;
                     long sleep = nextDraw - System.currentTimeMillis();
                     if (sleep > 0) {
@@ -558,7 +585,9 @@ public final class FfmpegFramePlayer {
         } else if (state.equals("paused")) {
             resume();
         } else if (state.equals("ended")) {
-            // 从头重播：冷启动管线放后台，不卡 UI
+            // 从头重播：冷启动管线放后台，不卡 UI；给 UI 一个"重播中"指示
+            // （0.5s 停驻期画在最后一帧，避免被误认为"闪/卡死"）
+            fireState("reloading", null);
             new Thread(() -> runSegment(0.0, false), "yucl-frame-restart").start();
         }
     }
@@ -673,6 +702,15 @@ public final class FfmpegFramePlayer {
                 }
                 p.destroy();
                 if (total == buf.length) {
+                    // 过期闪帧丢弃：主线管线已在播放且走得比目标远（>0.4s）→ 闪帧会让画面
+                    // "跳回再前进"（用户看到的"一直闪"）；此时主线自己很快会到目标，无需覆盖
+                    double nowPos = currentSec();
+                    if (nowPos - t > 0.4) {
+                        trace("flash dropped (stale: pipeline at "
+                                + String.format(java.util.Locale.ROOT, "%.2f", nowPos) + " > target "
+                                + String.format(java.util.Locale.ROOT, "%.2f", t) + ")");
+                        return;
+                    }
                     // 写进"另一张"并发布：渲染定时器下一 vsync 画出 —— 与主帧同一条渲染路径
                     ensureImagePool();
                     WritableImage target = (published.get() == wiA) ? wiB : wiA;

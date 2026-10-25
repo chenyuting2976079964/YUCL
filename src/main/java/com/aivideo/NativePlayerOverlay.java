@@ -255,6 +255,8 @@ public final class NativePlayerOverlay extends StackPane {
                             titleLabel.setText("⚠ " + detail);
                         } else if ("ended".equals(s)) {
                             seek.setValue(seek.getMax());
+                        } else if ("reloading".equals(s)) {
+                            timeLabel.setText("正在重播…");
                         }
                     });
                 }
@@ -293,6 +295,9 @@ public final class NativePlayerOverlay extends StackPane {
 
     private void uiTick() {
         if (player == null) return;
+        if (FfmpegFramePlayer.stateOf(player).equals("reloading")) {
+            return; // 重播冷启动期（画面停驻最后一帧）：不刷进度条/时间，保留"正在重播…"指示
+        }
         double d = player.durationSec();
         double t = player.currentSec();
         if (Double.isFinite(d) && d > 0) seek.setMax(d);
