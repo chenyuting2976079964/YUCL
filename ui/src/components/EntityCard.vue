@@ -70,9 +70,14 @@ function switchSrc(src: "prompt" | "upload") {
   props.entity.imgSrc = "";
   props.entity.image = "";
 }
-// 图片加载失败（公网 URL 过期 / 项目资产缺失）→ 清掉预览回到占位符，不显示破图图标
+// 图片加载失败（本地文件被清 / 公网 URL 过期）→ 先试公网回退，仍失败清回占位符，不显示破图
 function onImgErr() {
-  if (props.entity.imgSrc) props.entity.imgSrc = "";
+  const s = props.entity.imgSrc || "";
+  if (s.indexOf("/images/preview?") !== -1 && props.entity.url) {
+    props.entity.imgSrc = props.entity.url; // 本地预览失败 → 试一次公网
+    return;
+  }
+  if (s) props.entity.imgSrc = "";
 }
 async function genImage() {
   if (!props.entity.prompt.trim()) { await uiAlert("请先填写提示词"); return; }
@@ -87,10 +92,13 @@ async function genImage() {
     }, ctl.signal);
     clearTimeout(tid);
     if (j.ok) {
+      const base = j.local_path ? j.local_path.split(/[\\\/]/).pop() || "" : "";
       props.entity.path = j.local_path || "";
-      props.entity.url = j.url || "";
-      props.entity.imgSrc = j.url || "";
-      props.entity.image = j.local_path ? j.local_path.split(/[\\/]/).pop() || "" : "";
+      props.entity.url = j.url || ""; // 保留公网地址（视频合成 AI 引擎引用用）
+      props.entity.image = base;
+      // 预览统一走本地 /images/preview（文件已落盘在 cache/images，后端已加该目录回退）；
+      // 旧的 j.url（公网 CDN）在本机走系统代理常 0 字节 + 1h 过期 → "生成成功却看不到图"
+      props.entity.imgSrc = base ? baseUrl + "/images/preview?name=" + encodeURIComponent(base) : (j.url || "");
     } else await uiAlert("生成失败：" + (j.error || j.detail || "未知错误"));
   } catch (ex: any) {
     clearTimeout(tid);

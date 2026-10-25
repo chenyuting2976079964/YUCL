@@ -505,7 +505,13 @@ public class ApiController {
 
     @GetMapping(value={"/images/preview"}, produces={"image/png"})
     public ResponseEntity<InputStreamResource> imagesPreview(@RequestParam(name="name", required=false) String name, @RequestHeader(value="Range", required=false) String range) {
-        Path p = this.safeChild(Paths.get(this.imagesDir, new String[0]), name, IMG_EXTS);
+        // 图片库（media/images，上传件）优先；提示词生成图存在 cache/images（assetRoot/images）。
+        // 前端预览统一走本地 /images/preview——公网 CDN 在本机走系统代理常 0 字节且 URL
+        // 1 小时过期，直接用 j.url 当 <img src> 会"生成成功却看不到图"。
+        Path p = this.safeChild(Paths.get(this.imagesDir), name, IMG_EXTS);
+        if (p == null) {
+            p = this.safeChild(FfmpegCore.assetRoot().resolve("images"), name, IMG_EXTS);
+        }
         if (p == null) {
             return ResponseEntity.notFound().build();
         }
