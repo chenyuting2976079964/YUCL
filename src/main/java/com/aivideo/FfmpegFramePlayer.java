@@ -361,14 +361,13 @@ public final class FfmpegFramePlayer {
                     boolean froze = awaitUnpaused(); // 暂停：停止读管道 → ffmpeg 背压 → 管线原地冻结（续播零重启）
                     if (userStopped) break;
                     if (froze) {
-                        // 续播对齐：冻结期间 ffmpeg 把"半帧"写进管道缓冲（<1 帧残留）。
-                        // 不丢的话 readNBytes 会把"旧帧尾巴+新帧头"拼成一帧 → 画面糊/闪一下。
-                        int avail = in.available();
-                        if (avail > 0 && avail < cur.length) {
-                            in.readNBytes(new byte[avail], 0, avail);
-                            nextDraw = System.currentTimeMillis();
-                            trace("resume: dropped " + avail + "B pipe residue");
-                        }
+                        // 续播：不丢弃任何管道数据。读指针永远停在整帧边界（每次 readNBytes
+                        // 恰好读一帧），冻结段的帧就留在管道里——接着读 = 无缝续播且不错位。
+                        // （旧版这里丢 in.available() 字节，丢弃量非整帧倍数 → 之后每帧都错位
+                        //  半帧拼接 → 画面颜色错乱，即"暂停后再播放颜色直接变了"的根因）
+                        nextDraw = System.currentTimeMillis();
+                        lastFrameAt = 0; // 跨暂停的帧间隔不算卡帧，复位避免误报
+                        trace("resume (seamless, no residue drop)");
                     }
                     if (in.readNBytes(cur, 0, cur.length) != cur.length) break;
                     frameCount++;
@@ -441,15 +440,10 @@ public final class FfmpegFramePlayer {
                     boolean froze = awaitUnpaused();
                     if (userStopped) return;
                     if (froze) {
-                        // 刚从冻结恢复：丢弃冻结期间 ffmpeg 写进管道的音频（背压残留，≤0.4s），
-                        // 否则续播后音频会比视频"超前"——丢掉的正好是冻结段，音视频对齐
-                        long avail = in.available();
-                        while (avail > 0) {
-                            int rd = (int) Math.min(avail, chunk.length);
-                            int n2 = in.read(chunk, 0, rd);
-                            if (n2 <= 0) break;
-                            avail -= n2;
-                        }
+                        // 续播：同样不丢弃——音频接着读冻结段（背压残留），与视频一起无缝续播。
+                        // （旧版丢音频残留：每次续播音频"跳一下"，且与保留冻结段的视频不对称
+                        //  → 音画漂移）
+                        trace("audio resume (seamless, no residue drop)");
                     }
                     n = in.read(chunk);
                     if (n <= 0) break;

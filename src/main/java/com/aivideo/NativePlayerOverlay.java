@@ -150,9 +150,17 @@ public final class NativePlayerOverlay extends StackPane {
         cardBox = card;
 
         // ── 外层：铺满 WebView 区域，但透明不抢点击 ──
+        // 关键：外层绝不能有任何背景填充——连 "-fx-background-color:transparent" 都算
+        // 非 null 的 fill。对带 fill 的 Region，pickOnBounds(false) 并不生效（命中测试
+        // 仍把整块区域当"已绘制"→ 卡片以外区域的点击被外层吞掉，下方网页点不动，
+        // 日志里 target=NativePlayerOverlay 即此症状）。只有 pickOnBounds(false) + 无
+        // fill 才是真穿透：非卡片区域点击穿透到下方 WebView，卡片（子节点、自带实色
+        // 背景）仍完全可交互。
+        // （不能用 setMouseTransparent(true)：JavaFX 文档明确它作用于"本节点及其全部
+        //   子节点"，会把卡片一起弄死）
         setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         setAlignment(Pos.CENTER);
-        setStyle("-fx-background-color:transparent;");
+        setBackground(null);
         setPickOnBounds(false);
         getChildren().add(card);
         setVisible(false);
