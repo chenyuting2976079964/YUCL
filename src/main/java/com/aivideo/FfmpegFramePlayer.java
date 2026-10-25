@@ -49,8 +49,20 @@ public final class FfmpegFramePlayer {
     private int w = 640, h = 360;
     private double fps = 25.0;
     private double duration = Double.NaN;
-    private WritableImage wi;
-    private PixelWriter pw;
+
+    // ── 解码/渲染解耦（学 ExoPlayer：帧不经 UI 事件队列，渲染走独立 vsync 定时器）──
+    // 双图池：解码线程写"另一张"，发布后渲染定时器才 draw 当前张 → 零撕裂
+    private WritableImage wiA, wiB;
+    private final java.util.concurrent.atomic.AtomicReference<WritableImage> published =
+            new java.util.concurrent.atomic.AtomicReference<>();
+    private final java.util.concurrent.atomic.AtomicLong imgSeq =
+            new java.util.concurrent.atomic.AtomicLong(0L);
+    private volatile long lastRenderSeq = -1L;
+    private volatile javafx.animation.AnimationTimer renderTimer;
+    /** 解码分辨率上限：超过 1280 宽的源视频降到 1280 内（1080p 软解 rawdata 6MB/帧 必爆 CPU） */
+    private int decodeW, decodeH;
+    /** 源视频原始分辨率（scale 滤镜判断用） */
+    private int srcW = 0, srcH = 0;
 
     private volatile Process videoProc, audioProc;
     private volatile boolean userStopped = false; // 主动暂停/关闭（进程退出≠错误）
@@ -80,7 +92,10 @@ public final class FfmpegFramePlayer {
             trace("start: " + file + " (ffmpeg=" + ffmpeg + ")");
             try {
                 probe();
-                Platform.runLater(() -> sizeCanvas());
+                Platform.runLater(() -> {
+                    sizeCanvas();
+                    installRenderLoop(); // vsync 渲染循环（FX 线程起）
+                });
                 runSegment(0.0, false);
             } catch (Exception e) {
                 log.warn("frame player start failed: {}", file, e);
@@ -99,9 +114,34 @@ public final class FfmpegFramePlayer {
             ffprobe = null;
         }
         if (ffprobe != null && !ffprobe.isEmpty() && tryProbeFfprobe(ffprobe)) {
+            applyDecodeCap();
             return;
         }
         probeViaFfmpegStderr();
+        applyDecodeCap();
+    }
+
+    /** 软解 CPU 保护：宽超 1280 的源视频（如 1080p/4K）降到 1280 内解码。
+     *  raw RGB 管道体积 = w*h*3*fps：1080p≈6MB/帧×30=180MB/s 必爆，720p≈2.8MB 可承受。
+     *  显示侧仍按视频区 letterbox 缩放，清晰度在 1280 档内无感知损失。 */
+    private void applyDecodeCap() {
+        int ow = w, oh = h;
+        srcW = ow;
+        srcH = oh;
+        if (ow > 1280) {
+            decodeW = 1280;
+            decodeH = Math.max(2, (int) Math.round(oh * 1280.0 / ow / 2) * 2);
+        } else {
+            decodeW = ow;
+            decodeH = oh;
+        }
+        if ((decodeW & 1) == 1) decodeW--;
+        if ((decodeH & 1) == 1) decodeH--;
+        w = decodeW;
+        h = decodeH;
+        if (decodeW != ow || decodeH != oh) {
+            log.info("decode capped {}x{} -> {}x{} (soft-decode CPU guard)", ow, oh, w, h);
+        }
     }
 
     private boolean tryProbeFfprobe(String ffprobe) {
@@ -219,19 +259,55 @@ public final class FfmpegFramePlayer {
 
     private void sizeCanvas() {
         // 视频区（当前 areaW×areaH，默认卡片中间 640x318）等比适配；Canvas 只显示区大小，
-        // WritableImage 保持视频原生分辨率（drawImage 时缩放）——
+        // 解码图保持解码分辨率（drawImage 时缩放）——
         // 之前误把 WritableImage 建成显示区大小，setPixels(w,h) 越界异常，帧永远画不上
         double s = Math.min(areaW / w, areaH / h);
         double cw = Math.max(16, Math.round(w * s));
         double ch = Math.max(16, Math.round(h * s));
         canvas.setWidth(cw);
         canvas.setHeight(ch);
-        if (wi == null) {
-            wi = new WritableImage(w, h);
-            pw = wi.getPixelWriter();
-        }
+        ensureImagePool();
         gc.clearRect(0, 0, cw, ch);
         trace("canvas sized " + (int) cw + "x" + (int) ch + " (video " + w + "x" + h + ", area " + (int) areaW + "x" + (int) areaH + ")");
+    }
+
+    /** 双图池（解码分辨率）：FFMPEG 帧线程写"另一张"，发布后渲染定时器才画 —— 零撕裂。 */
+    private synchronized void ensureImagePool() {
+        if (wiA == null) {
+            wiA = new WritableImage(w, h);
+            wiB = new WritableImage(w, h);
+        }
+    }
+
+    /** 安装 vsync 渲染循环（FX 线程调用）。帧就绪（imgSeq 变化）就 draw ——
+     *  解码线程只写数据（跨线程安全的 PixelWriter），UI 事件/布局永不与逐帧渲染抢队列。 */
+    public void installRenderLoop() {
+        if (this.renderTimer != null) {
+            return;
+        }
+        this.renderTimer = new javafx.animation.AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                long seq = imgSeq.get();
+                if (seq == lastRenderSeq) {
+                    return;
+                }
+                lastRenderSeq = seq;
+                WritableImage img = published.get();
+                if (img != null && !userStopped) {
+                    gc.drawImage(img, 0, 0, canvas.getWidth(), canvas.getHeight());
+                }
+            }
+        };
+        this.renderTimer.start();
+    }
+
+    /** 停渲染循环（FX 线程调用；close 时）。 */
+    public void stopRenderLoop() {
+        if (this.renderTimer != null) {
+            this.renderTimer.stop();
+            this.renderTimer = null;
+        }
     }
 
     /** 从 fromSec 秒重启两路管道（fromSec=0 且 firstOpen 走首开路径）。 */
@@ -266,23 +342,23 @@ public final class FfmpegFramePlayer {
                 long intervalMs = Math.max(1L, Math.round(1000.0 / fps));
                 long nextDraw = System.currentTimeMillis();
                 boolean tracedFrame = false;
+                // 双图池：解码线程写"另一张"（PixelWriter 跨线程安全），发布后由
+                // AnimationTimer（FX 专属渲染定时器）draw —— 帧不再进 UI 事件队列排队，
+                // 控制/拖动/滚动与渲染互不阻塞（ExoPlayer 式解码/渲染分离）
+                ensureImagePool();
                 while (!userStopped) {
                     awaitUnpaused(); // 暂停：停止读管道 → ffmpeg 背压 → 管线原地冻结（续播零重启）
                     if (userStopped) break;
                     if (in.readNBytes(cur, 0, cur.length) != cur.length) break;
                     frameCount++;
-                    if (pw != null) {
-                        final byte[] snap = cur;
-                        Platform.runLater(() -> {
-                            // rgb24 = 3 字节/像素 → 扫描行步长是 w*3 字节（不是 w，
-                            // 传 w 会让每行错位 2/3 行宽 → 画面撕裂成彩色竖条纹）
-                            pw.setPixels(0, 0, w, h, PixelFormat.getByteRgbInstance(), snap, 0, w * 3);
-                            gc.drawImage(wi, 0, 0, canvas.getWidth(), canvas.getHeight());
-                        });
-                        if (!tracedFrame) {
-                            tracedFrame = true;
-                            trace("first frame enqueued (" + w + "x" + h + " @ " + fps + "fps)");
-                        }
+                    WritableImage target = (published.get() == wiA) ? wiB : wiA;
+                    target.getPixelWriter().setPixels(0, 0, w, h, PixelFormat.getByteRgbInstance(),
+                            cur, 0, w * 3); // rgb24 步长 = w*3（传 w 会撕裂成彩色竖条纹）
+                    published.set(target);
+                    imgSeq.incrementAndGet();
+                    if (!tracedFrame) {
+                        tracedFrame = true;
+                        trace("first frame ready (" + w + "x" + h + " @ " + fps + "fps)");
                     }
                     cur = (cur == bufA) ? bufB : bufA;
                     nextDraw += intervalMs;
@@ -407,6 +483,11 @@ public final class FfmpegFramePlayer {
         }
         c.add("-i");
         c.add(file);
+        // 降到解码档：rawdata 管道体积 = 解码分辨率×3，是 CPU 占用大头
+        if (decodeW > 0 && decodeW < srcW) {
+            c.add("-vf");
+            c.add("scale=" + decodeW + ":" + decodeH + ":flags=bilinear");
+        }
         return c;
     }
 
@@ -566,7 +647,7 @@ public final class FfmpegFramePlayer {
 
     /** 在 t 秒处取一帧立即画到 canvas（独立短命 ffmpeg 进程；用于 seek 即时反馈）。 */
     private void flashFrameAt(double t) {
-        if (pw == null || w < 16 || h < 16) {
+        if (w < 16 || h < 16) {
             return;
         }
         int w0 = w, h0 = h;
@@ -592,13 +673,14 @@ public final class FfmpegFramePlayer {
                 }
                 p.destroy();
                 if (total == buf.length) {
-                    final byte[] snap = buf;
-                    Platform.runLater(() -> {
-                        if (pw != null && wi != null) {
-                            pw.setPixels(0, 0, w0, h0, PixelFormat.getByteRgbInstance(), snap, 0, w0 * 3);
-                            gc.drawImage(wi, 0, 0, canvas.getWidth(), canvas.getHeight());
-                        }
-                    });
+                    // 写进"另一张"并发布：渲染定时器下一 vsync 画出 —— 与主帧同一条渲染路径
+                    ensureImagePool();
+                    WritableImage target = (published.get() == wiA) ? wiB : wiA;
+                    target.getPixelWriter().setPixels(0, 0, w0, h0,
+                            PixelFormat.getByteRgbInstance(), buf, 0, w0 * 3);
+                    published.set(target);
+                    imgSeq.incrementAndGet();
+                    trace("flash-frame ready @ " + String.format(java.util.Locale.ROOT, "%.2f", t));
                 }
             } catch (Exception ignored) {
             }
@@ -628,6 +710,7 @@ public final class FfmpegFramePlayer {
             pauseLock.notifyAll();
         }
         state = "idle";
+        stopRenderLoop();
         trace("close");
         GraphicsContext g = gc;
         Platform.runLater(() -> g.clearRect(0, 0, canvas.getWidth(), canvas.getHeight()));
