@@ -106,6 +106,13 @@ public final class NativePlayerOverlay extends StackPane {
         videoArea.setStyle("-fx-background-color:#000000;");
         canvas = new Canvas(640, 318);
         videoArea.getChildren().add(canvas);
+        // 点视频区直接 暂停/继续（同网页 <video> 的点击语义，⏸ 按钮保留为备用入口）：
+        // 画面本体 + 黑边信箱区都算视频区。reloading（重播冷启动中）点击无效——toggle 无此分支。
+        videoArea.setOnMouseClicked(e -> {
+            FfmpegFramePlayer.trace("vid click (state=" + (player == null ? "null" : FfmpegFramePlayer.stateOf(player)) + ")");
+            togglePlay();
+        });
+        // （本 OpenJFX 裁剪构建无 javafx.scene.input.Cursor，手型光标不可用）
 
         // ── 控制栏：播放/暂停 + 进度 + 时间 ──
         playBtn = new Button("▶");
