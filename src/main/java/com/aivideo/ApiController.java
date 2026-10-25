@@ -503,6 +503,48 @@ public class ApiController {
         }
     }
 
+    @GetMapping(value={"/images"})
+    public Map<String, Object> imagesList() {
+        ArrayList out = new ArrayList();
+        Path dir = Paths.get(this.imagesDir, new String[0]);
+        if (Files.isDirectory(dir, new LinkOption[0])) {
+            try (Stream<Path> stream2 = Files.list(dir);){
+                List<Path> files = stream2.sorted().toList();
+                for (Path p : files) {
+                    if (!Files.isRegularFile(p, new LinkOption[0]) || !IMG_EXTS.contains(ApiController.extOf(p.toString()).toLowerCase(Locale.ROOT))) continue;
+                    LinkedHashMap<String, Object> e = new LinkedHashMap<String, Object>();
+                    e.put("name", p.getFileName().toString());
+                    e.put("path", p.toString());
+                    e.put("size", Files.size(p));
+                    out.add(e);
+                }
+            }
+            catch (Exception stream2) {
+                // empty catch block
+            }
+        }
+        LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
+        r.put("ok", true);
+        r.put("dir", this.imagesDir);
+        r.put("images", out);
+        return r;
+    }
+
+    @DeleteMapping(value={"/images/{name}"})
+    public Map<String, Object> imagesDelete(@PathVariable(value="name") String name) {
+        Path p = this.safeChild(Paths.get(this.imagesDir, new String[0]), name, IMG_EXTS);
+        if (p == null) {
+            return Map.of("ok", false, "detail", "not found");
+        }
+        try {
+            Files.deleteIfExists(p);
+            return Map.of("ok", true, "name", name);
+        }
+        catch (Exception e) {
+            return Map.of("ok", false, "detail", "delete failed: " + e);
+        }
+    }
+
     @GetMapping(value={"/images/preview"}, produces={"image/png"})
     public ResponseEntity<InputStreamResource> imagesPreview(@RequestParam(name="name", required=false) String name, @RequestHeader(value="Range", required=false) String range) {
         // 图片库（media/images，上传件）优先；提示词生成图存在 cache/images（assetRoot/images）。
@@ -673,6 +715,21 @@ public class ApiController {
             return ResponseEntity.notFound().build();
         }
         return this.serveFile(p, "audio", range);
+    }
+
+    @DeleteMapping(value={"/voices/{name}"})
+    public Map<String, Object> voicesDelete(@PathVariable(value="name") String name) {
+        Path p = this.safeChild(Paths.get(this.voicesDir, new String[0]), name, VOICE_EXTS);
+        if (p == null) {
+            return Map.of("ok", false, "detail", "not found");
+        }
+        try {
+            Files.deleteIfExists(p);
+            return Map.of("ok", true, "name", name);
+        }
+        catch (Exception e) {
+            return Map.of("ok", false, "detail", "delete failed: " + e);
+        }
     }
 
     @GetMapping(value={"/music"})

@@ -57,8 +57,9 @@ export interface Job {
   voice_warnings?: string[];
 }
 
-export interface VoiceItem { name: string; path?: string; duration_s?: number }
-export interface MusicItem { name: string; path?: string; duration_s?: number }
+export interface VoiceItem { name: string; path?: string; duration_s?: number; size?: number }
+export interface MusicItem { name: string; path?: string; duration_s?: number; size?: number }
+export interface ImageItem { name: string; path?: string; size?: number }
 
 export interface CharBgShotPayload {
   character: string;
@@ -146,6 +147,11 @@ export const api = {
   uploadImage: (fd: FormData) =>
     fetch(API + "/images/upload", { method: "POST", body: fd })
       .then(r => j<{ ok: boolean; name?: string; path?: string; detail?: string; error?: string }>(r)),
+  listImages: () =>
+    fetch(API + "/images").then(r => j<{ ok: boolean; images?: ImageItem[]; detail?: string }>(r)),
+  deleteImage: (name: string) =>
+    fetch(API + "/images/" + encodeURIComponent(name), { method: "DELETE" })
+      .then(r => j<{ ok: boolean; detail?: string }>(r)),
 
   makeCharBg: (body: MakeCharBgBody) =>
     fetch(API + "/make-char-bg", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -170,6 +176,9 @@ export const api = {
   uploadVoice: (fd: FormData) =>
     fetch(API + "/voices/upload", { method: "POST", body: fd })
       .then(r => j<{ ok: boolean; voice?: VoiceItem; detail?: string; error?: string }>(r)),
+  deleteVoice: (name: string) =>
+    fetch(API + "/voices/" + encodeURIComponent(name), { method: "DELETE" })
+      .then(r => j<{ ok: boolean; detail?: string }>(r)),
 
   music: () => fetch(API + "/music").then(r => j<{ music: MusicItem[] }>(r)),
   uploadMusic: (fd: FormData) =>

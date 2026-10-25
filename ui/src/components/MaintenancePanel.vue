@@ -20,6 +20,7 @@
           <button type="button" class="cb-addbtn" style="width:auto;padding:8px 14px;margin-top:6px" @click="copyLogs">复制日志</button>
         </div>
         <a class="cb-addbtn" style="display:block;width:100%;padding:8px 14px;text-align:center" href="manual.html" target="_blank">📖 用户手册 ↗</a>
+        <MediaLibrary />
         <div class="status">{{ status }}</div>
       </div>
     </details>
@@ -31,6 +32,7 @@ import { ref, onMounted } from "vue";
 import { api } from "../api";
 import { useAppStore } from "../store";
 import { uiConfirm, uiPrompt } from "../dialogs";
+import MediaLibrary from "./MediaLibrary.vue";
 
 const store = useAppStore();
 const status = ref("");
