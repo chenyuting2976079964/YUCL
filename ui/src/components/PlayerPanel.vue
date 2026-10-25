@@ -7,7 +7,7 @@
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
           生成后在此播放 · 或从下方选择历史作品
         </div>
-        <video ref="vid" v-show="current" controls style="max-height:64vh"></video>
+        <video ref="vid" v-show="current" controls @click="onVidClick" style="max-height:64vh; cursor: default"></video>
         <div class="meta">
           <button v-if="current" type="button" id="player-native" class="chipbtn accent" title="内置网页黑屏？点我：随包 ffmpeg 直接解码渲染（H.264/HEVC/任何编码都行，原画无转码）" @click="requestNative(false)">⚡&emsp;原生播放器</button>
           <button v-if="current" type="button" id="player-open" class="chipbtn" title="窗口内播放异常、或想用完整功能（字幕轨道等）时，用系统浏览器打开" @click="openInBrowser">⇕&emsp;在系统浏览器打开</button>
@@ -92,12 +92,23 @@ async function requestNative(auto: boolean) {
     });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j.ok) {
-      playerHint.value = (auto ? "内置网页播放器无法解码此视频，已自动切换原生播放器。" : "已启动原生播放器。") + " 浮层在窗口中央（若看不到，请切到 YUCL 窗口前台）。";
+      playerHint.value = "已打开原生播放器。点 ✕ 关闭后，再点视频区或「⚡」可重新打开。";
     } else {
       playerHint.value = "⚠ 原生播放器启动失败：" + ((j && j.error) || "未知原因");
     }
   } catch (e: any) {
     playerHint.value = "⚠ 原生播放器启动失败：" + (e?.message || e);
+  }
+}
+/** 点网页 <video>（黑屏/播不了的状态）→ 重新打开原生播放器。
+ *  解决"×掉原生卡片后不知怎么再打开"：黑屏本身就是入口——
+ *  只要该视频确认过 WebKit 播不了（error / 未解码成功 / 曾切过原生），点它就开卡片。 */
+function onVidClick() {
+  const v = vid.value;
+  if (!v || !activeJobId.value) return;
+  const broken = !!v.error || v.readyState < 2 || nativeRequested.value.has(activeJobId.value);
+  if (broken) {
+    requestNative(false);
   }
 }
 function onSelect(jobId: string, m?: unknown) {
