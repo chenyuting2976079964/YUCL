@@ -58,9 +58,13 @@ public final class FfmpegFramePlayer {
     private volatile int frameCount = 0;
     private volatile double lastReported = -1.0;
 
-    private SourceDataLine audioLine;
+    private volatile SourceDataLine audioLine;
     private volatile boolean muted = false;
     private volatile String state = "idle";
+    /** 管线原地冻结（暂停/续播不重启进程）：true 时帧/音频线程停止消费管道 →
+     *  ffmpeg 管道背压 → 整条解码管线停在原地。零黑屏、零漂移积累、续播毫秒级。 */
+    private volatile boolean paused = false;
+    private final Object pauseLock = new Object();
 
     public FfmpegFramePlayer(String ffmpeg, String file, Canvas canvas, Listener listener) {
         this.ffmpeg = ffmpeg;
@@ -234,6 +238,10 @@ public final class FfmpegFramePlayer {
     private void runSegment(double fromSec, boolean firstOpen) {
         killProcesses();
         userStopped = false;
+        synchronized (pauseLock) {
+            paused = false;
+            pauseLock.notifyAll();
+        }
         segBase = fromSec;
         frameCount = 0;
         lastReported = -1.0;
@@ -258,7 +266,10 @@ public final class FfmpegFramePlayer {
                 long intervalMs = Math.max(1L, Math.round(1000.0 / fps));
                 long nextDraw = System.currentTimeMillis();
                 boolean tracedFrame = false;
-                while (!userStopped && in.readNBytes(cur, 0, cur.length) == cur.length) {
+                while (!userStopped) {
+                    awaitUnpaused(); // 暂停：停止读管道 → ffmpeg 背压 → 管线原地冻结（续播零重启）
+                    if (userStopped) break;
+                    if (in.readNBytes(cur, 0, cur.length) != cur.length) break;
                     frameCount++;
                     if (pw != null) {
                         final byte[] snap = cur;
@@ -310,11 +321,12 @@ public final class FfmpegFramePlayer {
         ac.add("2");
         ac.add("pipe:1");
         Thread at = new Thread(() -> {
+            SourceDataLine line = null;
             try {
                 Process a = startQuiet(ac);
                 audioProc = a;
                 AudioFormat fmt = new AudioFormat(44100.0f, 16, 2, false, false);
-                SourceDataLine line = AudioSystem.getSourceDataLine(fmt);
+                line = AudioSystem.getSourceDataLine(fmt);
                 audioLine = line;
                 line.open(fmt, 4096);
                 line.start();
@@ -322,7 +334,22 @@ public final class FfmpegFramePlayer {
                 byte[] chunk = new byte[65536];
                 byte[] zeros = new byte[65536];
                 int n;
-                while (!userStopped && (n = in.read(chunk)) > 0) {
+                while (!userStopped) {
+                    boolean froze = awaitUnpaused();
+                    if (userStopped) return;
+                    if (froze) {
+                        // 刚从冻结恢复：丢弃冻结期间 ffmpeg 写进管道的音频（背压残留，≤0.4s），
+                        // 否则续播后音频会比视频"超前"——丢掉的正好是冻结段，音视频对齐
+                        long avail = in.available();
+                        while (avail > 0) {
+                            int rd = (int) Math.min(avail, chunk.length);
+                            int n2 = in.read(chunk, 0, rd);
+                            if (n2 <= 0) break;
+                            avail -= n2;
+                        }
+                    }
+                    n = in.read(chunk);
+                    if (n <= 0) break;
                     int wrote = 0;
                     while (wrote < n) {
                         if (userStopped) return;
@@ -345,15 +372,20 @@ public final class FfmpegFramePlayer {
                     log.info("audio pipe silent (no audio track?): {}", e.getMessage());
                 }
             } finally {
-                try {
-                    if (audioLine != null && audioLine.isRunning()) audioLine.stop();
-                } catch (Exception ignored) {
+                if (line != null) {
+                    try {
+                        if (line.isRunning()) line.stop();
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        line.close();
+                    } catch (Exception ignored) {
+                    }
+                    // 只清掉"本段的" line：新段可能已开新 line，旧段退出不能误清
+                    if (audioLine == line) {
+                        audioLine = null;
+                    }
                 }
-                try {
-                    if (audioLine != null) audioLine.close();
-                } catch (Exception ignored) {
-                }
-                audioLine = null;
             }
         }, "yucl-frame-audio");
 
@@ -421,44 +453,156 @@ public final class FfmpegFramePlayer {
         listener.onState(s, detail);
     }
 
+    /** 等待解冻（暂停线程门）。返回 true = 刚才确实冻结过（调用方可做"恢复后"处理）。 */
+    private boolean awaitUnpaused() {
+        boolean froze = false;
+        synchronized (pauseLock) {
+            while (paused && !userStopped) {
+                froze = true;
+                try {
+                    pauseLock.wait(100L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        return froze;
+    }
+
     /** 播放中 → 暂停；否则（含结束/暂停）→ 从头或暂停点继续。 */
     public void toggle() {
         if (state.equals("playing")) {
             pause();
-        } else if (state.equals("paused") || state.equals("ended")) {
+        } else if (state.equals("paused")) {
             resume();
+        } else if (state.equals("ended")) {
+            // 从头重播：冷启动管线放后台，不卡 UI
+            new Thread(() -> runSegment(0.0, false), "yucl-frame-restart").start();
         }
     }
 
+    /** 原地冻结（零进程重启）：暂停=线程停止消费管道 → ffmpeg 背压整条管线停在原地。
+     *  续播（resume）时直接解冻——无黑屏、无冷启动、无漂移积累。 */
     public void pause() {
         if (!state.equals("playing")) return;
         double t = currentSec();
-        killProcesses();
+        synchronized (pauseLock) {
+            paused = true;
+            pauseLock.notifyAll();
+        }
+        SourceDataLine l = audioLine;
+        if (l != null) {
+            try {
+                if (l.isRunning()) l.stop();
+            } catch (Exception ignored) {
+            }
+        }
         state = "paused";
         listener.onState("paused", null);
         listener.onTime(t, duration);
+        trace("pause (pipeline frozen @ " + String.format(java.util.Locale.ROOT, "%.2f", t) + ")");
     }
 
+    /** 续播：管线冻结中 → 解冻即播（毫秒级无缝）；管线活着（后台重启中）→ 只置状态；
+     *  管线不存在/已结束 → 后台冷启动。 */
     public void resume() {
-        if (state.equals("ended")) {
-            runSegment(0.0, false);
+        if (!state.equals("paused") && !state.equals("ended")) return;
+        Process v = videoProc;
+        if (paused) {
+            synchronized (pauseLock) {
+                paused = false;
+                pauseLock.notifyAll();
+            }
+            SourceDataLine l = audioLine;
+            if (l != null) {
+                try {
+                    l.start(); // 从暂停点继续；音频线程会丢掉冻结段的背压残留，对齐无漂移
+                } catch (Exception ignored) {
+                }
+            }
+            state = "playing";
+            listener.onState("playing", null);
+            trace("resume (seamless, pipeline kept)");
+        } else if (v != null && v.isAlive()) {
+            // 后台 seek/重播重启中（管线已活）→ 只置 playing，不打扰
+            state = "playing";
+            listener.onState("playing", null);
         } else {
-            runSegment(currentSec(), false);
+            double from = state.equals("ended") ? 0.0 : segBase;
+            new Thread(() -> runSegment(from, false), "yucl-frame-restart").start();
+            trace("resume (cold restart @ " + from + ")");
         }
     }
 
-    /** 跳到 t 秒（≥0）；播放态下无缝续播。 */
+    /** 跳到 t 秒（≥0）。无缝实现：
+     *  1) 冻结/停掉当前管线（canvas 保留旧帧，不黑屏）；
+     *  2) 单帧闪帧：独立 ffmpeg 进程取目标位置一帧立即画上去（~0.3s 用户就看见目标画面）；
+     *  3) 播放态同时重启全管线（-ss t 视频+音频），首帧到达时自然覆盖闪帧（同一帧，无跳变）。 */
     public void seekTo(double t) {
+        if (!Double.isFinite(t) || t < 0) t = 0;
+        if (Double.isFinite(duration) && t > duration) t = duration;
         boolean wasPlaying = state.equals("playing");
+        synchronized (pauseLock) {
+            paused = false;
+            pauseLock.notifyAll();
+        }
         killProcesses();
         state = "paused";
-        if (wasPlaying) runSegment(t, false);
-        else {
-            // 暂停态：只挪到 t，等用户点播放
-            segBase = t;
-            frameCount = 0;
-            fireTime();
+        segBase = t;
+        frameCount = 0;
+        fireTime();
+        flashFrameAt(t);
+        if (wasPlaying) {
+            // 全管线重启放后台（进程冷启动不卡 UI）；闪帧已到，首帧到达即无缝接管
+            double t0 = t;
+            new Thread(() -> runSegment(t0, false), "yucl-frame-seek").start();
+            trace("seek (seamless) -> " + String.format(java.util.Locale.ROOT, "%.2f", t));
+        } else {
+            listener.onState("paused", null);
+            trace("seek (paused) -> " + String.format(java.util.Locale.ROOT, "%.2f", t));
         }
+    }
+
+    /** 在 t 秒处取一帧立即画到 canvas（独立短命 ffmpeg 进程；用于 seek 即时反馈）。 */
+    private void flashFrameAt(double t) {
+        if (pw == null || w < 16 || h < 16) {
+            return;
+        }
+        int w0 = w, h0 = h;
+        new Thread(() -> {
+            try {
+                List<String> c = baseCmd(t);
+                c.add("-frames:v");
+                c.add("1");
+                c.add("-f");
+                c.add("rawvideo");
+                c.add("-pix_fmt");
+                c.add("rgb24");
+                c.add("pipe:1");
+                Process p = startQuiet(c);
+                InputStream in = p.getInputStream();
+                byte[] buf = new byte[w0 * h0 * 3];
+                int total = 0;
+                int r;
+                long deadline = System.currentTimeMillis() + 3000L;
+                while (total < buf.length && (r = in.read(buf, total, buf.length - total)) > 0
+                        && System.currentTimeMillis() < deadline) {
+                    total += r;
+                }
+                p.destroy();
+                if (total == buf.length) {
+                    final byte[] snap = buf;
+                    Platform.runLater(() -> {
+                        if (pw != null && wi != null) {
+                            pw.setPixels(0, 0, w0, h0, PixelFormat.getByteRgbInstance(), snap, 0, w0 * 3);
+                            gc.drawImage(wi, 0, 0, canvas.getWidth(), canvas.getHeight());
+                        }
+                    });
+                }
+            } catch (Exception ignored) {
+            }
+        }, "yucl-frame-flash").start();
     }
 
     public void setMute(boolean m) {
@@ -479,6 +623,10 @@ public final class FfmpegFramePlayer {
     public void close() {
         userStopped = true;
         killProcesses();
+        synchronized (pauseLock) {
+            paused = false; // 释放冻结中的帧/音频线程，让它们退出循环
+            pauseLock.notifyAll();
+        }
         state = "idle";
         trace("close");
         GraphicsContext g = gc;
