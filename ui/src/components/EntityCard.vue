@@ -21,7 +21,7 @@
         <template v-else>
           <input ref="fileInp" type="file" class="cb-file" accept=".png,.jpg,.jpeg,.webp,.gif,.bmp" @change="upload">
           <div style="font-size:12px;color:var(--dim2);margin-top:5px">
-            {{ entity.path ? t("selected") + "：" + entity.path.split(/[\\/]/).pop() : t("select_file") }}
+            {{ (entity.path && !entity.url) ? t("selected") + "：" + entity.path.split(/[\\/]/).pop() : t("select_file") }}
           </div>
         </template>
       </div>
@@ -65,10 +65,9 @@ watch(() => props.entity, () => { busy.value = false; });
 
 function switchSrc(src: "prompt" | "upload") {
   props.entity.src = src;
-  props.entity.path = "";
-  props.entity.url = "";
-  props.entity.imgSrc = "";
-  props.entity.image = "";
+  // 只切换来源模式，不清空已有图片（生成/上传所得）：
+  // 图片仅当用户「重新生成」(genImage) 或「真的上传了新文件」(upload) 时才被替换；
+  // 旧行为点一下 tab 就清空 imgSrc/path/url/image → "一点上传图片，已生成的图就没了"
 }
 // 图片加载失败（本地文件被清 / 公网 URL 过期）→ 先试公网回退，仍失败清回占位符，不显示破图
 function onImgErr() {
