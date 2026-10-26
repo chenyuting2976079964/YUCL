@@ -325,6 +325,12 @@ public final class ModelGateway {
     }
 
     public static Map<String, Object> generate(String prompt, List<String> imageRefs, List<String> audioRefs, String model, int seconds, String aspectRatio, String outDir, double pollDeadlineS, int queueRetries, BooleanSupplier cancel, String providerId) {
+        return ModelGateway.generate(prompt, imageRefs, audioRefs, model, seconds, aspectRatio, outDir, pollDeadlineS, queueRetries, cancel, providerId, "720P");
+    }
+
+    /** sizeTier：输出分辨率档位（Agnes Video API 规范：仅 "720P"/"1080P"/"2K"；
+     *  flash 模型只支持 720P，更高档位自动改用 base 模型 agnes-video-2.5）。 */
+    public static Map<String, Object> generate(String prompt, List<String> imageRefs, List<String> audioRefs, String model, int seconds, String aspectRatio, String outDir, double pollDeadlineS, int queueRetries, BooleanSupplier cancel, String providerId, String sizeTier) {
         String string = prompt = prompt == null ? "" : prompt.trim();
         if (prompt.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
@@ -336,6 +342,17 @@ public final class ModelGateway {
         String ratio = RATIO.getOrDefault(aspectRatio == null ? "9:16" : aspectRatio, aspectRatio == null ? "9:16" : aspectRatio);
         if (model == null || model.isEmpty()) {
             model = providerId != null && !providerId.trim().isEmpty() ? Providers.defaultVideoModel(Providers.byid(providerId)) : Providers.defaultVideoModel(Providers.active());
+        }
+        // 输出分辨率档位（Agnes Video API 规范）：仅 720P/1080P/2K；
+        // flash 模型只支持 720P，更高档位自动改用 base 模型 agnes-video-2.5。
+        String tier = sizeTier == null || sizeTier.isEmpty() ? "720P" : sizeTier.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("720P", "1080P", "2K").contains(tier)) {
+            tier = "720P";
+        }
+        boolean tierUpgraded = false;
+        if (model.contains("-flash") && !"720P".equals(tier)) {
+            model = "agnes-video-2.5";
+            tierUpgraded = true;
         }
         List refs = imageRefs == null ? List.of() : imageRefs.stream().filter(u -> u != null && !u.isEmpty()).toList();
         List auds = audioRefs == null ? List.of() : audioRefs.stream().filter(u -> u != null && !u.isEmpty()).toList();
@@ -371,7 +388,7 @@ public final class ModelGateway {
                     body.put("prompt", prompt);
                     body.put("seconds", String.valueOf(seconds));
                     body.put("mode", refs.isEmpty() && auds.isEmpty() ? "text" : "reference");
-                    body.put("size", "720P");
+                    body.put("size", tier);
                     body.put("aspect_ratio", ratio);
                     body.put("n", 1);
                     if (!refs.isEmpty()) {
@@ -433,7 +450,11 @@ public final class ModelGateway {
                     out.put("ok", true);
                     out.put("video", dest.toString());
                     out.put("model", model);
+                    out.put("size", tier);
                     out.put("mode", refs.isEmpty() && auds.isEmpty() ? "text" : "reference");
+                    if (tierUpgraded) {
+                        out.put("note", "agnes-video-2.5-flash 仅支持 720P，已自动改用 " + model + " 输出 " + tier);
+                    }
                     out.put("aspect_ratio", ratio);
                     out.put("seconds", seconds);
                     out.put("video_id", vid);

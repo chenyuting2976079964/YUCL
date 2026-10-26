@@ -45,11 +45,12 @@
         <div class="srow"><input class="full" v-model="sh.text" :placeholder="t('action_ph')"></div>
         <div class="srow">
           <select v-model="sh.engine">
-            <option value="local">{{ t("engine_local") }}</option>
             <option value="ai">{{ t("engine_ai") }}</option>
+            <option value="local">{{ t("engine_local") }}</option>
           </select>
           <button type="button" class="cb-del" @click="shots.splice(i, 1)">{{ t("del_shot") }}</button>
         </div>
+        <div class="hint" style="font-size:12px;color:var(--dim2)">{{ sh.engine === "ai" ? t("ai_note") : t("local_note") }}</div>
       </div>
       <button type="button" class="cb-addbtn" @click="addShot">{{ t("add_shot") }}</button>
     </div>
@@ -147,7 +148,7 @@ const bgs = ref<CbEntity[]>([]);
 // 先建空数组再填充：makeEntity 引用 chars/bgs.value，必须在二者初始化之后调用（TDZ）
 chars.value = [makeEntity("chars"), makeEntity("chars")];
 bgs.value = [makeEntity("bgs")];
-const shots = ref<Shot[]>([{ char: chars.value[0].id, char2: chars.value[1].id, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" }]);
+const shots = ref<Shot[]>([{ char: chars.value[0].id, char2: chars.value[1].id, bg: bgs.value[0].id, text: "", seconds: 5, engine: "ai" }]);
 
 const orientation = ref("9:16"); // 短视频以竖屏为主 → 默认竖屏（用户仍可切换）
 const provId = ref("");
@@ -201,7 +202,7 @@ function addEntity(kind: "chars" | "bgs") {
   (kind === "chars" ? chars : bgs).value.push(e);
 }
 function addShot() {
-  shots.value.push({ char: 0, char2: 0, bg: bgs.value[0]?.id ?? 0, text: "", seconds: 5, engine: "local" });
+  shots.value.push({ char: 0, char2: 0, bg: bgs.value[0]?.id ?? 0, text: "", seconds: 5, engine: "ai" });
 }
 function renderAll() {
   // 失效的镜头引用清理
@@ -248,7 +249,7 @@ function applyScript(s: ScriptDoc): string {
     const names = (x.character || "").split(/[,，、]/).map(s => s.trim()).filter(Boolean);
     const c1 = names[0] ? charId.get(names[0]) ?? 0 : 0;
     const c2 = names[1] ? charId.get(names[1]) ?? 0 : 0;
-    return { char: c1, char2: c2, bg: 0, text: ((x.shot ? "[" + x.shot + "] " : "") + (x.dialogue || "").trim()), seconds: x.seconds || 5, engine: "local" };
+    return { char: c1, char2: c2, bg: 0, text: ((x.shot ? "[" + x.shot + "] " : "") + (x.dialogue || "").trim()), seconds: x.seconds || 5, engine: "ai" };
   });
   (s.scenes || []).forEach((x, i) => {
     const key = (x.background || "").trim();
@@ -275,14 +276,14 @@ async function submit() {
     character: byId(chars.value, sh.char).name || "",
     character2: byId(chars.value, sh.char2).name || "",
     background: byId(bgs.value, sh.bg).name || "",
-    text: sh.text || "", seconds: sh.seconds || 5, engine: sh.engine || "local"
+    text: sh.text || "", seconds: sh.seconds || 5, engine: sh.engine || "ai"
   }));
   if (!charsP.length) { error.value = "✕ 请至少提供一张人物图片（上传或提示词生成）"; return; }
   if (!bgsP.length) { error.value = "✕ 请至少提供一张背景图片（上传或提示词生成）"; return; }
   if (!shotsP.length) { error.value = "✕ 请至少添加一个镜头"; return; }
   const anyAi = shots.value.some(sh => sh.engine === "ai");
   if (anyAi && !charsP.concat(bgsP).some(x => x.url)) {
-    error.value = "✕ AI 引擎需要可联网参考图：请用「提示词」生成图片（得到公网 URL），或把该镜头改为「本地合成」";
+    error.value = "✕ AI 生成需要至少一张可联网参考图：本地上传的图片无法传给视频模型。请用「提示词」为人物/背景生成图片（得到公网 URL），或把该镜头改为「本地合成」";
     return;
   }
   const charVoices: Record<string, string> = {};
@@ -383,9 +384,9 @@ defineExpose({
     shots.value = (Array.isArray(f.shots) && f.shots.length ? f.shots : [])
       .map((s: any) => ({
         char: remapRef(+s?.char || 0, chars.value), char2: remapRef(+s?.char2 || 0, chars.value), bg: remapRef(+s?.bg || 0, bgs.value),
-        text: s?.text || "", seconds: +s?.seconds || 5, engine: s?.engine || "local"
+        text: s?.text || "", seconds: +s?.seconds || 5, engine: s?.engine || "ai"
       }));
-    if (!shots.value.length) shots.value.push({ char: chars.value[0].id, char2: chars.value[1]?.id || 0, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" });
+    if (!shots.value.length) shots.value.push({ char: chars.value[0].id, char2: chars.value[1]?.id || 0, bg: bgs.value[0].id, text: "", seconds: 5, engine: "ai" });
     if (f.orientation) orientation.value = f.orientation;
     if (typeof f.providerId === "string") provId.value = f.providerId;
     if (typeof f.videoModel === "string") videoModel.value = f.videoModel;
@@ -402,7 +403,7 @@ defineExpose({
     chars.value = []; bgs.value = [];
     chars.value = [makeEntity("chars"), makeEntity("chars")];
     bgs.value = [makeEntity("bgs")];
-    shots.value = [{ char: chars.value[0].id, char2: chars.value[1].id, bg: bgs.value[0].id, text: "", seconds: 5, engine: "local" }];
+    shots.value = [{ char: chars.value[0].id, char2: chars.value[1].id, bg: bgs.value[0].id, text: "", seconds: 5, engine: "ai" }];
     orientation.value = "9:16"; provId.value = ""; videoModel.value = ""; imgModel.value = "";
     charScale.value = 0.68; charPos.value = "bottom-center"; subtitles.value = true; narration.value = true;
   }

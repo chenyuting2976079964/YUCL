@@ -28,6 +28,7 @@
       <div class="field">
         <label class="lbl">导出分辨率</label>
         <select v-model="quality">
+          <option value="2k">2K（AI 生成最高画质）</option>
           <option value="1080p">1080P（默认）</option>
           <option value="720p">720P（更小更快）</option>
         </select>

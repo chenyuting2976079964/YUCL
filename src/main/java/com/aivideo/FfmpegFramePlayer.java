@@ -129,16 +129,18 @@ public final class FfmpegFramePlayer {
         applyDecodeCap();
     }
 
-    /** 软解 CPU 保护：宽超 1280 的源视频（如 1080p/4K）降到 1280 内解码。
-     *  raw RGB 管道体积 = w*h*3*fps：1080p≈6MB/帧×30=180MB/s 必爆，720p≈2.8MB 可承受。
-     *  显示侧仍按视频区 letterbox 缩放，清晰度在 1280 档内无感知损失。 */
+    /** 软解 CPU 保护：解码像素面积超过 1280×720 的源视频（横屏 1080p/4K、竖屏 1080×1920、2K）
+     *  按面积等比缩到 1280×720 档内解码。raw RGB 管道体积 = w*h*3*fps：
+     *  1080p≈6MB/帧×30=180MB/s 必爆，720p≈2.8MB 可承受（竖屏 1080×1920 面积同 1080p，同样需降档）。
+     *  显示侧仍按视频区 letterbox 缩放，清晰度在 720p 档内无感知损失。 */
     private void applyDecodeCap() {
         int ow = w, oh = h;
         srcW = ow;
         srcH = oh;
-        if (ow > 1280) {
-            decodeW = 1280;
-            decodeH = Math.max(2, (int) Math.round(oh * 1280.0 / ow / 2) * 2);
+        if ((long) ow * oh > 1280L * 720L) {
+            double s = Math.sqrt(1280.0 * 720.0 / ((double) ow * oh));
+            decodeW = Math.max(2, (int) Math.round(ow * s / 2.0) * 2);
+            decodeH = Math.max(2, (int) Math.round(oh * s / 2.0) * 2);
         } else {
             decodeW = ow;
             decodeH = oh;
