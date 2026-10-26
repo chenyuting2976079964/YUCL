@@ -53,8 +53,6 @@ public final class NativePlayerOverlay extends StackPane {
     private final StackPane videoArea;
     /** 嵌入模式（"在播放器框内播放"）：卡片定位到网页播放器框，顶栏透明悬浮 */
     private boolean embedded = false;
-    /** 定位已定死（position:fixed 语义）：首次 embedAt 生效后，滚动上报不再移动浮层；open()/unembed() 重置 */
-    private boolean pinned = false;
     /** 当前加载的文件（同路径重开拦截用） */
     private String currentFile;
     private javafx.scene.layout.VBox cardBox;
@@ -62,6 +60,12 @@ public final class NativePlayerOverlay extends StackPane {
     private javafx.scene.layout.HBox barNode;
 
     public NativePlayerOverlay() {
+        // 嵌入模式下卡片可被 translate 到父区域外（播放框滚出屏幕时 y<0）——
+        // 用自身区域裁剪：滚出时卡片随之完全不可见，且不会溢出到窗口标题栏上
+        javafx.scene.shape.Rectangle clipRect = new javafx.scene.shape.Rectangle(0, 0, 1, 1);
+        clipRect.widthProperty().bind(this.widthProperty());
+        clipRect.heightProperty().bind(this.heightProperty());
+        this.setClip(clipRect);
         // ── 卡片 ──
         VBox card = new VBox();
         card.setPrefSize(CARD_W, TOP_H + VIDEO_H + BAR_H);
@@ -178,26 +182,13 @@ public final class NativePlayerOverlay extends StackPane {
     /** 嵌入模式：把卡片定位到网页播放器框（root 坐标系 = WebView 视口坐标系，CSS px 1:1）。
      *  顶栏变透明悬浮、卡片去阴影、尺寸=框尺寸；视频区 letterbox 铺满剩余空间。
      *  非法 rect（过小）自动退回居中卡片。
-     *  定位语义对齐 CSS position:fixed（滚动悬浮视频的标准做法：视频定在视口内，
-     *  页面内容在下方滚动）——打开时定位一次即「定死」，此后 JS 持续上报的
-     *  滚动/缩放 rect 不再移动浮层（用户要求：界面向下滑，视频不能动）；
-     *  只有 open() 切到新源时重置并重新定位。 */
+     *  定位语义：「定死在框里」——1:1 跟随播放预览框（含滚出视口）：
+     *  页面往下滚时播放框滚出屏幕，浮层同步滚出（随之不可见），滚回来再出现；
+     *  不做视口钳制、不钉在窗口上（用户要求：滚动界面时播放器要跟着消失，不是常驻右上角）。 */
     public void embedAt(double x, double y, double w, double h) {
-        if (pinned) {
-            FfmpegFramePlayer.trace("embedAt ignored (pinned: 定位已定死，不随页面滚动)");
-            return;
-        }
         if (w < 240 || h < 160 || !(w > 0) || !(h > 0)) {
             this.unembed();
             return;
-        }
-        // 钳制到 root（= WebView 视口）边界：网页播放框被向上/向左滚出视口时
-        // （<video> rect.top<0，JS 持续上报会带着负坐标进来），旧逻辑原样跟随
-        // → 卡片整体甩出窗口上缘，用户"播放器消失了"。钳制后卡片贴住视口边缘。
-        if (this.getParent() instanceof javafx.scene.layout.Region pn && pn.getWidth() > 0 && pn.getHeight() > 0) {
-            double vw = pn.getWidth(), vh = pn.getHeight();
-            if (w <= vw) x = Math.max(0.0, Math.min(x, vw - w));
-            y = Math.max(0.0, Math.min(y, vh - h));
         }
         embedded = true;
         FfmpegFramePlayer.trace("embedAt " + (int) x + "," + (int) y + " " + (int) w + "x" + (int) h);
@@ -228,13 +219,10 @@ public final class NativePlayerOverlay extends StackPane {
         if (player != null) {
             player.fitToArea(w, h - TOP_H - BAR_H);
         }
-        // 定位一次即定死：后续滚动/缩放上报的 embedAt 全部忽略（pinned 闸）
-        pinned = true;
     }
 
     /** 退出嵌入模式：恢复居中卡片外观。 */
     public void unembed() {
-        pinned = false;
         if (!embedded) {
             return;
         }

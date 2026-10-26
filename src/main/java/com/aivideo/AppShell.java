@@ -239,8 +239,8 @@ extends Application {
         // 播放器框 rect 上报：JS 持续 POST /playtest/player-rect（<video> 视口坐标）→ 浮层打开时
         // 嵌入框内播放；未打开时仅缓存。坐标说明：embedAt 使用 root(StackPane) local 坐标系，
         // 而 root 恰好就是 WebView 容器（标题栏在它上面的 outer 里），所以 JS 视口坐标 1:1 直接用。
-        // 注意：overlay 首次定位后即「定死」（pinned，position:fixed 语义）——
-        // 用户滚动页面时这些上报不再移动浮层，只有切到新源 open() 时重新定位。
+        // 注意：overlay 跟随播放框 1:1（含滚出视口）——页面往下滚时播放框滚出屏幕，
+        // 浮层同步滚出随之不可见（裁剪在 WebView 区域内，不溢出标题栏）；切新源 open() 时重新定位。
         com.aivideo.ApiController.registerPlayerRectHook(rect -> {
             Platform.runLater(() -> {
                 if (this.playerOverlay == null) {
