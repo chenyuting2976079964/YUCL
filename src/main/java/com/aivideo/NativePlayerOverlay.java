@@ -53,6 +53,8 @@ public final class NativePlayerOverlay extends StackPane {
     private final StackPane videoArea;
     /** 嵌入模式（"在播放器框内播放"）：卡片定位到网页播放器框，顶栏透明悬浮 */
     private boolean embedded = false;
+    /** 当前加载的文件（同路径重开拦截用） */
+    private String currentFile;
     private javafx.scene.layout.VBox cardBox;
     private javafx.scene.layout.HBox topBarNode;
     private javafx.scene.layout.HBox barNode;
@@ -179,6 +181,14 @@ public final class NativePlayerOverlay extends StackPane {
             this.unembed();
             return;
         }
+        // 钳制到 root（= WebView 视口）边界：网页播放框被向上/向左滚出视口时
+        // （<video> rect.top<0，JS 持续上报会带着负坐标进来），旧逻辑原样跟随
+        // → 卡片整体甩出窗口上缘，用户"播放器消失了"。钳制后卡片贴住视口边缘。
+        if (this.getParent() instanceof javafx.scene.layout.Region pn && pn.getWidth() > 0 && pn.getHeight() > 0) {
+            double vw = pn.getWidth(), vh = pn.getHeight();
+            if (w <= vw) x = Math.max(0.0, Math.min(x, vw - w));
+            y = Math.max(0.0, Math.min(y, vh - h));
+        }
         embedded = true;
         FfmpegFramePlayer.trace("embedAt " + (int) x + "," + (int) y + " " + (int) w + "x" + (int) h);
         // 卡片尺寸 = 框尺寸（内容被顶栏 36 + 控制栏 44 压缩，视频区 letterbox）
@@ -232,10 +242,28 @@ public final class NativePlayerOverlay extends StackPane {
         }
     }
 
-    /** 显示浮层并播放本地文件。重复调用会先停掉上一段。 */
+    /** 显示浮层并播放本地文件。重复调用会先停掉上一段。
+     *  例外：同一文件且管线还活着（playing/paused/reloading）→ 不重启——
+     *  JS 侧 3s 保底/手动 ⚡/error 事件可能对同一作品重复触发 open，
+     *  旧逻辑每次都 dispose+重建 → 视频"刚点开又从 0 重播"（切换再播放体验坏的根因）。
+     *  ended 不算活着：播完再点同一作品 = 从头重看，走正常重建。 */
     public void open(String path, String title) {
+        if (player != null && path.equals(this.currentFile)) {
+            String st = FfmpegFramePlayer.stateOf(player);
+            if (!"ended".equals(st) && !"idle".equals(st) && !"error".equals(st)) {
+                FfmpegFramePlayer.trace("open skip: same file active (" + st + ") — no restart");
+                return;
+            }
+        }
         this.disposeMedia();
         this.unembed(); // 新一段播放从居中卡片开始；AppShell 有最新 rect 会立即 embedAt
+        // 切源即重置进度 UI（规范对齐：HTMLMediaElement.load() 重置 currentTime/播放状态；
+        //  ExoPlayer 切 MediaItem 重置 position 显示）——新管线 probe 要 0.5~2s，
+        //  不复位会先显示上一段的进度/时间，"新视频从 80% 进度开始"的错乱观感
+        this.seeking = false;
+        this.seek.setValue(0.0);
+        this.seek.setMax(1.0);
+        this.timeLabel.setText("--:-- / --:--");
         titleLabel.setText(title == null || title.isEmpty() ? path : title);
         mutedState = false;
         muteBtn.setText("🔊");
@@ -277,6 +305,7 @@ public final class NativePlayerOverlay extends StackPane {
                 }
             });
             player.start();
+            this.currentFile = path;
             tick.play();
             setVisible(true);
             setManaged(true);
@@ -329,6 +358,7 @@ public final class NativePlayerOverlay extends StackPane {
             }
         }
         player = null;
+        this.currentFile = null;
         Platform.runLater(() -> {
             javafx.scene.canvas.GraphicsContext g = canvas.getGraphicsContext2D();
             g.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());

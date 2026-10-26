@@ -279,11 +279,21 @@ public final class FfmpegFramePlayer {
         trace("canvas sized " + (int) cw + "x" + (int) ch + " (video " + w + "x" + h + ", area " + (int) areaW + "x" + (int) areaH + ")");
     }
 
-    /** 双图池（解码分辨率）：FFMPEG 帧线程写"另一张"，发布后渲染定时器才画 —— 零撕裂。 */
+    /** 双图池（解码分辨率）：FFMPEG 帧线程写"另一张"，发布后由渲染定时器才画 —— 零撕裂。
+     *  WritableImage 固定尺寸（JavaFX 规范：尺寸变化必须重建，不能 resize）——
+     *  旧版只在 wiA==null 时建池：首开 640x360 默认值建池（probe 前），probe 出真实
+     *  解码分辨率（如 720x1280）后池不跟随 → 新尺寸帧 setPixels 越界
+     *  （"Index 921600 out of bounds"）→ 首帧即 error、非 640x360 的作品永远黑屏。
+     *  尺寸不匹配时重建双池并丢弃已发布帧（渲染定时器跳过 null）。 */
+    private int poolW = 0, poolH = 0;
     private synchronized void ensureImagePool() {
-        if (wiA == null) {
+        if (wiA == null || poolW != w || poolH != h) {
             wiA = new WritableImage(w, h);
             wiB = new WritableImage(w, h);
+            poolW = w;
+            poolH = h;
+            published.set(null);
+            FfmpegFramePlayer.trace("image pool now " + w + "x" + h);
         }
     }
 
@@ -416,7 +426,10 @@ public final class FfmpegFramePlayer {
                     fireState("error", "视频解码失败（ffmpeg 退出码 " + code + "）");
                 }
             } catch (Exception e) {
-                if (!userStopped) fireState("error", e.getMessage());
+                if (!userStopped) {
+                    log.warn("frame pipeline error: {}", file, e); // 带堆栈：UI 只显示短 message，排查靠这里
+                    fireState("error", e.getMessage());
+                }
             }
         }, "yucl-frame-video");
 

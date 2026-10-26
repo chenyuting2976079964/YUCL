@@ -49,7 +49,13 @@ const meta = ref<MediaMeta | null>(null);
 const playerHint = ref("");
 const playerError = ref("");
 const vid = ref<HTMLVideoElement | null>(null);
-const nativeRequested = ref<Set<string>>(new Set());
+/** 当前这次选中里已自动开过原生播放器的作品（同一次选中的 error 事件 + 3s 保底不重复触发）。
+ *  切到新作品时重置：每次切换都自动打开原生播放器（旧语义"每个作品只自动一次"会让
+ *  切回去时黑屏、找不到入口——"切换再播放"问题的一部分）。 */
+const autoOpenedFor = ref("");
+/** 本会话内网页 <video> 已确认解不了码（error 事件或 3s 保底未解码成功）→
+ *  之后的作品切换 0ms 立即开原生播放器，不再等 3s 黑屏。 */
+let webEverFailed = false;
 
 const audioSrcs = computed(() => {
   const a = meta.value?.audio_sources;
@@ -59,28 +65,38 @@ const audioSrcs = computed(() => {
 
 function onStreamError() {
   if (vid.value?.error) {
-    // WebEngine 的 WebKit 媒体栈解不了 H.264/MPEG-4 → 自动切原生播放器（每个作品只自动一次）
-    if (activeJobId.value && !nativeRequested.value.has(activeJobId.value)) {
-      nativeRequested.value.add(activeJobId.value);
-      requestNative(true);
-      return;
-    }
+    // WebEngine 的 WebKit 媒体栈解不了 H.264/MPEG-4 → 自动切原生播放器
+    webEverFailed = true;
+    if (maybeAutoNative()) return;
     playerHint.value = "⚠ 窗口内网页播放器无法播放此视频（编码不受支持）——点「⚡ 原生播放器」或用系统浏览器打开。";
   }
 }
-// WebEngine 对 H.264 常常静默黑屏（不抛 JS error 事件）——3 秒还没解码成功就自动降级
+/** 为"当前这次选中"自动开原生播放器。返回 true=已打开（或本选中已开过，跳过）。
+ *  同一路径的重复 open 由原生侧拦下（同一文件播放中不重启），所以 ⚡ 连点/保底
+ *  双触发都是安全的。 */
+function maybeAutoNative(): boolean {
+  if (!activeJobId.value || autoOpenedFor.value === activeJobId.value) return true;
+  const v = vid.value;
+  if (v && !v.error && v.readyState >= 2) return false; // 网页还在正常播，不切
+  autoOpenedFor.value = activeJobId.value;
+  requestNative(true);
+  return true;
+}
+// WebEngine 对 H.264 常常静默黑屏（不抛 JS error 事件）——3 秒还没解码成功就自动降级；
+// 一旦确认过网页解不了码（webEverFailed），切换作品时 0ms 直接开原生，不再黑屏 3s
 let fallbackTimer = 0;
 function armNativeFallback() {
   if (fallbackTimer) window.clearTimeout(fallbackTimer);
+  const wait = webEverFailed ? 0 : 3000;
   fallbackTimer = window.setTimeout(() => {
     fallbackTimer = 0;
     const v = vid.value;
     const alive = v && v.readyState >= 2 && (!v.paused || v.currentTime > 0.05);
-    if (!alive && activeJobId.value && !nativeRequested.value.has(activeJobId.value)) {
-      nativeRequested.value.add(activeJobId.value);
-      requestNative(true);
+    if (!alive) {
+      webEverFailed = true;
+      maybeAutoNative();
     }
-  }, 3000);
+  }, wait);
 }
 async function requestNative(auto: boolean) {
   if (!activeJobId.value) return;
@@ -102,11 +118,12 @@ async function requestNative(auto: boolean) {
 }
 /** 点网页 <video>（黑屏/播不了的状态）→ 重新打开原生播放器。
  *  解决"×掉原生卡片后不知怎么再打开"：黑屏本身就是入口——
- *  只要该视频确认过 WebKit 播不了（error / 未解码成功 / 曾切过原生），点它就开卡片。 */
+ *  只要该视频确认过 WebKit 播不了（error / 未解码成功），点它就开卡片。
+ *  同一文件重开由原生侧拦截（播放中不重启），连点安全。 */
 function onVidClick() {
   const v = vid.value;
   if (!v || !activeJobId.value) return;
-  const broken = !!v.error || v.readyState < 2 || nativeRequested.value.has(activeJobId.value);
+  const broken = !!v.error || v.readyState < 2;
   if (broken) {
     requestNative(false);
   }
@@ -115,8 +132,10 @@ function onSelect(jobId: string, m?: unknown) {
   activeJobId.value = jobId;
   playerError.value = "";
   meta.value = null;
+  autoOpenedFor.value = ""; // 新的选中：允许再自动开原生（"切换即播放"）
   const streamUri = baseUrl + "/stream?job_id=" + encodeURIComponent(jobId) + "&win=1"; // win=1：有"窗口版"（探测编码）时优先给窗口能播的版本
   playUri(streamUri, m as MediaMeta | undefined);
+  if (webEverFailed) maybeAutoNative(); // 已知网页播不了 → 切换不黑屏 3s，立即开原生播放器
   // 拉完整 meta（字幕/模型/声源/规格）：卡片只带 duration_s，缺了会误显示「字幕: 无」
   api.jobDetail(jobId).then(d => {
     if (activeJobId.value !== jobId) return;
