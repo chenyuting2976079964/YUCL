@@ -224,27 +224,59 @@ async function del(id: string) {
 
 // ── 播放器框位置上报：原生播放器"框内播放"依赖 —— 持续把 <video> 元素的视口 rect
 //    （= WebView root 坐标，CSS px 1:1）POST 给后端；浮层打开时嵌入该框，
-//    滚动/缩放/切作品自动跟到新位置。未打开浮层时后端只缓存、不消耗。──
-const rectState = { x: 0, y: 0, w: 0, h: 0, timer: 0, ro: null as ResizeObserver | null, lastSent: "" };
-function reportPlayerRect() {
+//    切作品/缩放自动跟到新位置。未打开浮层时后端只缓存、不消耗。
+//    滚动语义（消除"分离→弹回"）：滚动一开始即时上报 scroll:1（不等 250ms 节流）→
+//    后端立刻隐藏浮层（播放/声音不中断）；150ms 无滚动 → 上报最终坐标 scroll:0 →
+//    后端归位并恢复显示。滚出屏幕的播放框 → 浮层随之不可见。──
+const rectState = { x: 0, y: 0, w: 0, h: 0, timer: 0, ro: null as ResizeObserver | null, lastSent: "", scrollBusy: false, scrollIdleT: 0 };
+function sendRect() {
+  const s = JSON.stringify({
+    x: rectState.x, y: rectState.y, w: rectState.w, h: rectState.h,
+    scroll: rectState.scrollBusy ? 1 : 0,
+  });
+  fetch(baseUrl + "/playtest/player-rect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: s,
+  }).catch(() => { /* 后端暂不可达，静默 */ });
+}
+function readRect() {
   const v = vid.value;
-  if (!v || !current.value) return;
+  if (!v || !current.value) return false;
   const r = v.getBoundingClientRect();
-  const x = Math.round(r.left), y = Math.round(r.top), w = Math.round(r.width), h = Math.round(r.height);
-  const key = x + "," + y + "," + w + "," + h;
-  if (key === rectState.lastSent) return; // 无变化不上报
-  rectState.x = x; rectState.y = y; rectState.w = w; rectState.h = h;
+  rectState.x = Math.round(r.left);
+  rectState.y = Math.round(r.top);
+  rectState.w = Math.round(r.width);
+  rectState.h = Math.round(r.height);
+  return rectState.w >= 60 && rectState.h >= 40;
+}
+function reportPlayerRect() {
+  // 静止路径（ResizeObserver/resize/watch）：250ms 节流 + 去重
+  if (!readRect()) return;
+  const key = rectState.x + "," + rectState.y + "," + rectState.w + "," + rectState.h;
+  if (key === rectState.lastSent) return;
   rectState.lastSent = key;
-  if (rectState.timer) return; // 已在节流窗口内
+  if (rectState.timer) return; // 已在节流窗口内（滚动路径会即时发）
   rectState.timer = window.setTimeout(() => {
     rectState.timer = 0;
-    const s = JSON.stringify({ x: rectState.x, y: rectState.y, w: rectState.w, h: rectState.h });
-    fetch(baseUrl + "/playtest/player-rect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: s,
-    }).catch(() => { /* 后端暂不可达，静默 */ });
+    sendRect();
   }, 250);
+}
+function onPageScroll() {
+  // 首个滚动事件：即时上报 scroll:1（不节流）→ 浮层立刻隐藏，滚动全程无分离感
+  if (!rectState.scrollBusy) {
+    rectState.scrollBusy = true;
+    if (readRect()) sendRect();
+  }
+  window.clearTimeout(rectState.scrollIdleT);
+  rectState.scrollIdleT = window.setTimeout(() => {
+    // 150ms 无滚动：上报最终坐标 scroll:0 → 浮层归位并恢复
+    rectState.scrollBusy = false;
+    if (readRect()) {
+      rectState.lastSent = rectState.x + "," + rectState.y + "," + rectState.w + "," + rectState.h;
+      sendRect();
+    }
+  }, 150);
 }
 watch(current, (val) => {
   if (!val) {
@@ -264,14 +296,15 @@ watch(current, (val) => {
   });
 });
 onMounted(() => {
-  document.addEventListener("scroll", reportPlayerRect, { capture: true, passive: true });
+  document.addEventListener("scroll", onPageScroll, { capture: true, passive: true });
   window.addEventListener("resize", reportPlayerRect, { passive: true });
 });
 onBeforeUnmount(() => {
-  document.removeEventListener("scroll", reportPlayerRect, { capture: true } as any);
+  document.removeEventListener("scroll", onPageScroll, { capture: true } as any);
   window.removeEventListener("resize", reportPlayerRect);
   rectState.ro?.disconnect();
   if (rectState.timer) window.clearTimeout(rectState.timer);
+  if (rectState.scrollIdleT) window.clearTimeout(rectState.scrollIdleT);
 });
 
 onMounted(() => {

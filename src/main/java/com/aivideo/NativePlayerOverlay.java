@@ -243,6 +243,37 @@ public final class NativePlayerOverlay extends StackPane {
         }
     }
 
+    /** 滚动中隐藏：页面滚动时网页播放框立刻移动，而浮层坐标走 250ms 节流上报
+     *  → 滚的过程中浮层滞后（"分离→停滚又弹回"）。滚动一开始就整体隐藏——
+     *  解码/播放/声音不中断（只是不显示卡片），滚停后 JS 重报最终坐标 →
+     *  showFromScroll() + embedAt() 归位。 */
+    private boolean scrollHidden = false;
+
+    public void hideForScroll() {
+        if (!this.isVisible() || scrollHidden) {
+            return;
+        }
+        FfmpegFramePlayer.trace("hideForScroll: 页面滚动中，浮层隐藏（播放不中断）");
+        scrollHidden = true;
+        this.setVisible(false);
+        this.setManaged(false);
+    }
+
+    /** 滚动结束：恢复显示（随后调用方紧跟 embedAt 归位到最新播放框坐标）。 */
+    public void showFromScroll() {
+        if (!scrollHidden) {
+            return;
+        }
+        FfmpegFramePlayer.trace("showFromScroll: 滚动结束，浮层恢复");
+        scrollHidden = false;
+        this.setVisible(true);
+        this.setManaged(false);
+    }
+
+    public boolean isScrollHidden() {
+        return scrollHidden;
+    }
+
     /** 显示浮层并播放本地文件。重复调用会先停掉上一段。
      *  例外：同一文件且管线还活着（playing/paused/reloading）→ 不重启——
      *  JS 侧 3s 保底/手动 ⚡/error 事件可能对同一作品重复触发 open，
@@ -253,9 +284,11 @@ public final class NativePlayerOverlay extends StackPane {
             String st = FfmpegFramePlayer.stateOf(player);
             if (!"ended".equals(st) && !"idle".equals(st) && !"error".equals(st)) {
                 FfmpegFramePlayer.trace("open skip: same file active (" + st + ") — no restart");
+                this.showFromScroll(); // 被滚动隐藏时，手动重开同一段 → 恢复显示
                 return;
             }
         }
+        scrollHidden = false;
         this.disposeMedia();
         this.unembed(); // 新一段播放从居中卡片开始；AppShell 有最新 rect 会立即 embedAt
         // 切源即重置进度 UI（规范对齐：HTMLMediaElement.load() 重置 currentTime/播放状态；
@@ -322,6 +355,7 @@ public final class NativePlayerOverlay extends StackPane {
 
     /** 停止播放并隐藏浮层。可重复调用。 */
     public void close() {
+        scrollHidden = false;
         this.disposeMedia();
         mutedState = false;
         titleLabel.setText("");

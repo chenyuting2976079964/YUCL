@@ -1582,14 +1582,16 @@ public class ApiController {
         double y = ApiController.dblOf(body.get("y"));
         double w = ApiController.dblOf(body.get("w"));
         double h = ApiController.dblOf(body.get("h"));
+        double scrolling = ApiController.dblOf(body.get("scroll")); // 1 = 页面正在滚动（JS 首个滚动事件即时上报）
         if (!(w >= 10) || !(h >= 10)) {
             return Map.of("ok", false, "error", "rect 过小，忽略");
         }
-        com.aivideo.AppShell.setLastPlayerRect(new double[]{x, y, w, h});
+        double[] rect = new double[]{x, y, w, h, scrolling};
+        com.aivideo.AppShell.setLastPlayerRect(rect);
         java.util.function.Consumer<double[]> hk = playerRectHook;
         if (hk != null) {
             try {
-                hk.accept(new double[]{x, y, w, h});
+                hk.accept(rect);
             } catch (Exception ignored) {
             }
         }
