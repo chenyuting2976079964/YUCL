@@ -1223,6 +1223,9 @@ public class ApiController {
             if (j.get("voice_warnings") != null) {
                 o.put("voice_warnings", j.get("voice_warnings"));
             }
+            if (j.get("engine_fallbacks") != null) {
+                o.put("engine_fallbacks", j.get("engine_fallbacks"));
+            }
             live.add(o);
         }
         LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
