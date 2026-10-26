@@ -1535,10 +1535,12 @@ public class ApiController {
     }
 
     /* ---- 原生播放桥（根治 WebEngine 黑屏）：WebEngine 的 WebKit 媒体栈没有 H.264/MPEG-4
-       解码器，<video> 放任何成片都黑屏。JavaFX MediaPlayer 走 Windows Media Foundation
-       （系统解码器）不受影响。JS 不能直接调 Java，交接方式是同进程内存队列：
-       JS POST /playtest/native-request → 入队 → AppShell 的 JavaFX 侧 Timeline 每 300ms
-       轮询出队 → 查 /playtest/native-video-path 取文件 → 打开原生播放器浮层。---- */
+       解码器，<video> 放任何成片都黑屏；JavaFX MediaPlayer 在本 OpenJFX 构建走
+       GStreamer-lite 管线、不带视频解码器（任何媒体都 ERROR_MEDIA_INVALID）。
+       所以窗口内播放走 FfmpegFramePlayer（随包 ffmpeg 软解 + Canvas 逐帧绘制）。
+       JS 不能直接调 Java，主路径是进程内直连钩子：JS POST /playtest/native-request →
+       nativePlayHook 立即在当前窗口所属 JVM 开浮层（双开窗口也开在对的那个里）；
+       钩子异常/未注册时退回内存队列（AppShell 的 JavaFX 侧 Timeline 每 300ms 轮询出队）。---- */
     private static final java.util.concurrent.ConcurrentLinkedQueue<String> NATIVE_PLAY_QUEUE = new java.util.concurrent.ConcurrentLinkedQueue<String>();
 
     /** 进程内直连钩子：AppShell 注册后，本进程的 JS POST 立即在"当前窗口所属 JVM"里开浮层

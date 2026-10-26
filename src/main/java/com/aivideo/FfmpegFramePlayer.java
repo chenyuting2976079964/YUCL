@@ -26,8 +26,16 @@ import java.util.regex.Pattern;
  *
  * 音频：单独一条 ffmpeg 管道输出 44.1k/16bit/双声道 PCM，经 javax.sound 播放。
  *
- * 线程模型：探测/帧读/音频写都在普通线程；Canvas 更新与回调经 Platform.runLater。
- * 暂停/跳转 = 杀掉两路进程再以 -ss 重启（ffmpeg 管道无法原地暂停，重启即可且无漂移积累）。
+ * 线程模型：探测/帧读/音频写都在普通线程。解码与渲染解耦（学 ExoPlayer）：
+ * 解码线程写双图池"另一张"并发布，FX 线程的 AnimationTimer（vsync）才 draw，
+ * 帧不经 UI 事件队列排队，控制/拖动/滚动与逐帧渲染互不阻塞。
+ *
+ * 暂停/续播 = 管线原地冻结（不重启进程）：线程停止读管道 → ffmpeg 背压 →
+ * 整条解码管线停在原地。零黑屏、零漂移积累、续播毫秒级；续播不丢弃任何管道
+ * 残留（读指针停在整帧边界），音画一起无缝续。
+ * seek = 单帧闪帧即时反馈（独立短命 ffmpeg 取目标帧 ~0.3s 先画出）+ 后台
+ * 重启全管线（-ss t，冷启动不卡 UI；过期闪帧丢弃防"跳回再前进"）。
+ * 重播（ended）= 后台冷启动，UI 给"正在重播…"指示停驻最后一帧。
  */
 public final class FfmpegFramePlayer {
     private static final Logger log = LoggerFactory.getLogger(FfmpegFramePlayer.class);
@@ -621,7 +629,8 @@ public final class FfmpegFramePlayer {
             SourceDataLine l = audioLine;
             if (l != null) {
                 try {
-                    l.start(); // 从暂停点继续；音频线程会丢掉冻结段的背压残留，对齐无漂移
+                    l.start(); // 从暂停点继续；音频线程接着读冻结段背压残留（不丢弃），
+                              // 与视频对齐无缝续播
                 } catch (Exception ignored) {
                 }
             }

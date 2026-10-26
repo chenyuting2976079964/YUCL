@@ -35,9 +35,13 @@
       <classifier>win</classifier>
     </dependency>
 
-    <!-- JavaFX 原生媒体管线（MediaPlayer/Video）：走 Windows Media Foundation 解码器。
-         WebEngine 的 WebKit 媒体栈没有 H.264/MPEG-4 解码器（窗口内播放黑屏的根因），
-         原生播放器浮层用它直接放 H.264/AAC 成片，不经过 WebView。 -->
+    <!-- javafx-media 必须留在 classpath（javafx-web 的传递依赖，这里显式声明）：
+         WebEngine 的静态初始化会加载 com.sun.media.jfxmedia.*（媒体事件监听器），
+         缺了它 new WebView() 直接 NoClassDefFoundError、整个窗口开不出来
+         （2026-10-26 冒烟实测，曾误 exclusion 导致窗口静默失效）。
+         本构建的 GStreamer-lite 管线不带视频解码器（解不了 H.264），所以窗口内
+         成片播放走 FfmpegFramePlayer 的 ffmpeg 软解 + Canvas，不用 MediaPlayer；
+         但 media 的类本身必须存在。 -->
     <dependency>
       <groupId>org.openjfx</groupId>
       <artifactId>javafx-media</artifactId>

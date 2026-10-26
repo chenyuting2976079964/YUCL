@@ -134,9 +134,12 @@ async function run() {
   let winner = "";
   for (const c of order) if (results[c]) { winner = c; break; }
   if (!winner) {
-    sum.textContent = "⚠ 所有候选都无法在窗口内播放 —— 请点「在系统浏览器打开」查看视频，或检查系统解码器。";
+    // 与自动探测（autoProbe.ts）一致：写 "none" = 窗口什么编码都解不了，
+    // 窗口版不再转码，窗口内播放走内置 ffmpeg 原生播放器
+    try { await fetch(API + "/playtest/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ codec: "none" }) }); } catch (e) {}
+    sum.textContent = "✅ 窗口内网页播放器确认不可用（全部候选失败）——已设为「原生播放器」模式：新视频不再转窗口版，窗口内播放自动用内置 ffmpeg 解码器（原画无转码）。";
     document.querySelectorAll("button").forEach(b => b.classList.remove("busy"));
-    console.log("[playtest] result=NONE");
+    console.log("[playtest] result=NONE saved");
     return;
   }
   if (winner === "h264") {

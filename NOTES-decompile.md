@@ -25,8 +25,9 @@
    ffmpeg.conf 配置支持（`-x264opts` 写配置无效），所以参数在代码里写死。
 
 ## 与旧版本的类对照
-- `com.aivideo.tools.{Installer,Uninstaller}` 是改名前的遗留副本，仍打进 fat jar，
-  安装/卸载实际用 `com.yuc.tools.*`（tools.jar 只含这四个类里的 yuc 两个 + 无依赖）。
+- 遗留副本 `com.aivideo.tools.{Installer,Uninstaller}` 已从源码树删除（旧 fat jar
+  里还带着这两个 class；新构建不再打进）。安装/卸载实际用 `com.yuc.tools.*`
+  （build-all.bat 每次重建 tools.jar，只含这两个类 + 无依赖）。
 
 
 ## Code audit 2026-10-20 (bugs found & fixed, source = authoritative java25 tree)

@@ -829,6 +829,11 @@ extends Application {
                     app.start(new Stage());
                 }
                 catch (Throwable t) {
+                    // 守卫：FX 回调跑在 Spring 日志初始化之前，此时 slf4j 无 provider，
+                    // log.error 会被静默吞掉（曾致窗口失效无日志可查）——双写 stderr + trace 文件
+                    System.err.println("FX window failed to open: " + t);
+                    t.printStackTrace();
+                    AppShell.trace("FX window FAILED: " + t);
                     log.error("FX window failed to open: {}", t);
                 }
             });
