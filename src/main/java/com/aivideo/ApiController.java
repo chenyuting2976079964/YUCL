@@ -1057,6 +1057,10 @@ public class ApiController {
                 if ((ef = result.get("engine_fallbacks")) instanceof List && !(l2 = (List)ef).isEmpty()) {
                     fin.put("engine_fallbacks", ef);
                 }
+                Object sw = result.get("subtitle_warning");
+                if (sw instanceof String sws && !sws.isEmpty()) {
+                    fin.put("subtitle_warning", sws);
+                }
                 // 用户选了 BGM 但文件在库里找不到 → 静默降级会困惑，补一条可见告警
                 String bgmReq = FfmpegCore.str(params.get("bgm_requested"));
                 if (!bgmReq.isEmpty() && bgm.isEmpty()) {

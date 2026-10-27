@@ -154,6 +154,7 @@ public final class CharBgComposer {
         ArrayList<String> engineFallbacks = new ArrayList<String>();
         LinkedHashMap<String, Integer> audioSrcCount = new LinkedHashMap<String, Integer>();
         ArrayList<String> voiceWarnings = new ArrayList<String>();
+        String subsBurnError = null; // 字幕烧录失败原因（成功为 null）
         for (int i = 0; i < shots.size(); ++i) {
             Map<String, Object> comp;
             Double alen;
@@ -376,6 +377,9 @@ public final class CharBgComposer {
             Map<String, Object> r3 = FfmpegCore.burnSrt(finalOut, srt, finalSubs, subFontSize);
             if (Boolean.TRUE.equals(r3.get("ok"))) {
                 finalOut = finalSubs;
+            } else {
+                // 静默降级会困惑（勾了字幕成品却没有）→ 把失败原因透传到结果
+                subsBurnError = String.valueOf(r3.getOrDefault("error", "unknown"));
             }
         }
         double durTotal = (double)Math.round(processed.stream().mapToDouble(p -> FfmpegCore.num(p.get("duration"))).sum() * 100.0) / 100.0;
@@ -392,6 +396,10 @@ public final class CharBgComposer {
         out.put("voice_warnings", voiceWarnings);
         out.put("engine_fallbacks", engineFallbacks);
         out.put("subtitles", subtitles && finalOut.contains("subs"));
+        if (subsBurnError != null) {
+            // 勾了字幕但烧录失败 → 结果里带上原因，UI 可展示（而不是静默没有字幕）
+            out.put("subtitle_warning", "字幕烧录失败（" + subsBurnError + "），最终视频无字幕");
+        }
         // 本地合成任务不应显示「请求的 AI 模型」——按实际是否用了 AI 镜头标注；AI 镜头记录实际使用的模型/档位
         boolean usedAi = processed.stream().anyMatch(p -> "ai".equals(p.get("engine")));
         String modelUsed;

@@ -111,7 +111,8 @@ public final class Projects {
 
   /** Create an empty project; returns the new id. */
   public static String create(String name) throws IOException {
-    String base = slug(name == null || name.trim().isEmpty() ? "未命名项目" : name);
+    String nm = name == null ? "" : name.trim();
+    String base = slug(nm.isEmpty() ? "未命名项目" : name);
     String id = base;
     int m = 2;
     while (Files.exists(rawDir(id))) {
@@ -120,7 +121,7 @@ public final class Projects {
     }
     Files.createDirectories(assetsDir(id));
     Map<String, Object> doc = new LinkedHashMap<>();
-    doc.put("name", name.trim());
+    doc.put("name", nm.isEmpty() ? "未命名项目" : nm);
     doc.put("created", now());
     doc.put("modified", now());
     doc.put("state", emptyState());

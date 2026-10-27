@@ -31,6 +31,7 @@
         <span class="tag">{{ job.style || 'video' }}</span> · {{ job.duration_s ?? "" }}s
         <span v-if="job.voice_warnings?.length" :title="job.voice_warnings.join('；')" style="color:var(--warn)">⚠</span>
         <span v-if="job.engine_fallbacks?.length" :title="'AI 回退说明：\n' + job.engine_fallbacks.join('\n')" style="color:var(--warn)">🛠</span>
+        <span v-if="job.subtitle_warning" :title="job.subtitle_warning" style="color:var(--warn);cursor:help">⚠字幕</span>
       </template>
     </div>
   </div>

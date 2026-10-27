@@ -56,6 +56,7 @@ export interface Job {
   style?: string;
   voice_warnings?: string[];
   engine_fallbacks?: string[];
+  subtitle_warning?: string;
 }
 
 export interface VoiceItem { name: string; path?: string; duration_s?: number; size?: number }
@@ -98,6 +99,7 @@ export interface MediaMeta {
   model?: string;
   audio_sources?: Record<string, number>;
   engine_fallbacks?: string[];
+  subtitle_warning?: string;
 }
 
 // 统一解析响应体；非 2xx（如 500 HTML 错误页）不抛"Unexpected token <"，

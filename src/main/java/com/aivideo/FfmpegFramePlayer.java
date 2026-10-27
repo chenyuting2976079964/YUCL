@@ -197,6 +197,8 @@ public final class FfmpegFramePlayer {
         cmd.add("-hide_banner");
         cmd.add("-i");
         cmd.add(file);
+        cmd.add("-t");
+        cmd.add("0.2"); // 只解码 0.2s（-f null 不带 -t 会全片解码，5 分钟视频要等几十秒才出画面）
         cmd.add("-f");
         cmd.add("null");
         cmd.add("-");
@@ -208,7 +210,11 @@ public final class FfmpegFramePlayer {
             err = new String(es.readAllBytes());
         }
         drainStdout(p);
-        p.waitFor();
+        if (!p.waitFor(60L, java.util.concurrent.TimeUnit.SECONDS)) {
+            // 探测卡死（坏文件等）→ 强杀，不留孤儿进程
+            p.destroyForcibly();
+            throw new IllegalStateException("probe timed out (60s)");
+        }
         // 信息在 stderr 里（即使 -f null 成功/失败都会打印）
         Matcher dm = Pattern.compile("Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)").matcher(err);
         if (dm.find()) {
@@ -542,12 +548,14 @@ public final class FfmpegFramePlayer {
     }
 
     private static void drainStdout(Process p) {
-        new Thread(() -> {
+        Thread th = new Thread(() -> {
             try (InputStream os = p.getInputStream()) {
                 os.readAllBytes();
             } catch (Exception ignored) {
             }
-        }).start();
+        }, "ffmpeg-stdout-drain");
+        th.setDaemon(true);
+        th.start();
     }
 
     private void killProcesses() {
@@ -749,13 +757,8 @@ public final class FfmpegFramePlayer {
 
     /** 当前播放状态（idle/playing/paused/ended/error）——按钮埋点用 */
     public static String stateOf(FfmpegFramePlayer p) {
-        try {
-            java.lang.reflect.Field f = FfmpegFramePlayer.class.getDeclaredField("state");
-            f.setAccessible(true);
-            return String.valueOf(f.get(p));
-        } catch (Exception e) {
-            return "?";
-        }
+        // 同类内直接读 volatile 字段；旧实现每次调用都走反射 getDeclaredField + setAccessible
+        return p.state;
     }
 
     public void close() {

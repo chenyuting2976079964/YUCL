@@ -152,7 +152,9 @@ public final class ModelGateway {
     }
 
     private static HttpClient newClient(int timeoutSec) {
-        return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10L)).followRedirects(HttpClient.Redirect.NORMAL).build();
+        // 旧实现参数没用上（写死 10s）：连接超时应跟随调用方语义（请求超时的 1/2 量级，封顶 30s）
+        long connSec = Math.max(5L, Math.min(timeoutSec, 30L));
+        return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(connSec)).followRedirects(HttpClient.Redirect.NORMAL).build();
     }
 
     static List<String[]> providerEndpoints() {
@@ -234,7 +236,7 @@ public final class ModelGateway {
     }
 
     public static Map<String, Object> generateImage(String prompt, String size, String model, String outDir, String providerId) {
-        String string = prompt = prompt == null ? "" : prompt.trim();
+        prompt = prompt == null ? "" : prompt.trim();
         if (prompt.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
             r.put("ok", false);
@@ -331,12 +333,15 @@ public final class ModelGateway {
     /** sizeTier：输出分辨率档位（Agnes Video API 规范：仅 "720P"/"1080P"/"2K"；
      *  flash 模型只支持 720P，更高档位自动改用 base 模型 agnes-video-2.5）。 */
     public static Map<String, Object> generate(String prompt, List<String> imageRefs, List<String> audioRefs, String model, int seconds, String aspectRatio, String outDir, double pollDeadlineS, int queueRetries, BooleanSupplier cancel, String providerId, String sizeTier) {
-        String string = prompt = prompt == null ? "" : prompt.trim();
+        prompt = prompt == null ? "" : prompt.trim();
         if (prompt.isEmpty()) {
             LinkedHashMap<String, Object> r = new LinkedHashMap<String, Object>();
             r.put("ok", false);
-            r.put("error", "agena: prompt is empty");
+            r.put("error", "agnes: prompt is empty");
             return r;
+        }
+        if (pollDeadlineS <= 0) {
+            pollDeadlineS = 900.0; // 非法值不能导致"0 秒轮询→立即失败"（旧行为：while 不进入，报 status='queued'）
         }
         seconds = Math.max(4, Math.min(12, seconds == 0 ? 5 : seconds));
         String ratio = RATIO.getOrDefault(aspectRatio == null ? "9:16" : aspectRatio, aspectRatio == null ? "9:16" : aspectRatio);
@@ -476,11 +481,14 @@ public final class ModelGateway {
             }
             try {
                 Thread.sleep(20000L);
-                continue;
             }
             catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 break;
+            }
+            // 排队重试间隙也可能被取消 → 醒来先查一次（旧代码只在睡前查，取消最坏要等满 20s）
+            if (cancel.getAsBoolean()) {
+                return ModelGateway.cancelledResult();
             }
         }
         LinkedHashMap<String, Object> fin = new LinkedHashMap<String, Object>();

@@ -21,7 +21,8 @@
           </template>
           <span v-else-if="playerError" class="chip"><b>{{ playerError }}</b></span>
         </div>
-        <div v-if="meta?.engine_fallbacks?.length" class="pbwarn">⚠ {{ (meta.engine_fallbacks || []).join("；") }}</div>
+        <div v-if="meta?.engine_fallbacks?.length" class="pbwarn">⚠ {{ (meta.engine_fallbacks || []).join("；")}}</div>
+        <div v-if="meta?.subtitle_warning" class="pbwarn">⚠ {{ meta.subtitle_warning }}</div>
       </div>
     </div>
     <div class="sect">
@@ -147,6 +148,7 @@ function onSelect(jobId: string, m?: unknown) {
       model: d.model,
       audio_sources: d.audio_sources,
       engine_fallbacks: d.engine_fallbacks,
+      subtitle_warning: d.subtitle_warning,
     };
   }).catch(() => {});
 }

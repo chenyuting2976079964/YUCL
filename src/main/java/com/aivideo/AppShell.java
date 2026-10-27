@@ -483,9 +483,14 @@ extends Application {
                             int w2 = (int) wi.getWidth(), h2 = (int) wi.getHeight();
                             java.awt.image.BufferedImage bi = new java.awt.image.BufferedImage(w2, h2, java.awt.image.BufferedImage.TYPE_INT_ARGB);
                             javafx.scene.image.PixelReader pr = wi.getPixelReader();
+                            // 一次批量读 ARGB 像素（原生层拷贝）代替逐像素 getArgb（每次都是独立 native 调用，
+                            // 百万级像素在 FX 线程上会卡顿数百毫秒）
+                            java.nio.IntBuffer px = java.nio.IntBuffer.allocate(w2 * h2);
+                            pr.getPixels(0, 0, w2, h2, javafx.scene.image.PixelFormat.getIntArgbInstance(), px, w2);
                             for (int py = 0; py < h2; py++) {
-                                for (int px = 0; px < w2; px++) {
-                                    bi.setRGB(px, py, pr.getArgb(px, py));
+                                int rowOff = py * w2;
+                                for (int px2 = 0; px2 < w2; px2++) {
+                                    bi.setRGB(px2, py, px.get(rowOff + px2));
                                 }
                             }
                             java.nio.file.Path snapDir = com.aivideo.DataDirs.dataDir();
@@ -608,8 +613,7 @@ extends Application {
                 ret = null;
             }
             if (ret instanceof String s && !s.isEmpty() && !s.contains("null")) {
-                com.fasterxml.jackson.databind.JsonNode n = new com.fasterxml.jackson.databind.ObjectMapper()
-                        .readTree(s);
+                com.fasterxml.jackson.databind.JsonNode n = JSON.readTree(s);
                 double x = n.path("x").asDouble(0);
                 double y = n.path("y").asDouble(0);
                 double w = n.path("w").asDouble(0);

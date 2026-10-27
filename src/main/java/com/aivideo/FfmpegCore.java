@@ -255,7 +255,8 @@ public final class FfmpegCore {
                 catch (Exception exception) {
                     // empty catch block
                 }
-            });
+            }, "ffmpeg-err-drain");
+            errDrain.setDaemon(true); // 非守护线程若在 join(5s) 上限后仍未排空 stderr，会拖住 JVM 退出
             errDrain.start();
             try (InputStream in = started.getInputStream();){
                 // Drain the whole stdout stream so the pipe never fills and
@@ -287,6 +288,14 @@ public final class FfmpegCore {
             // 只清自己持有的进程句柄：无条件置 null 会误清另一线程刚启动的新 ffmpeg
             if (p != null && currentFfmpeg == p) {
                 currentFfmpeg = null;
+            }
+            if (p != null && p.isAlive()) {
+                // 异常发生在 start() 之后（stdout 排空期 IOException 等）→ 进程还活着，
+                // 不杀会留下孤儿 ffmpeg 继续占 CPU
+                try {
+                    p.destroyForcibly();
+                } catch (Exception ignored) {
+                }
             }
             return Map.of("ok", false, "error", "ffmpeg launch failed: " + exc);
         }
@@ -500,9 +509,9 @@ public final class FfmpegCore {
         args.add("-movflags");
         args.add("+faststart");
         args.add(out);
-        FfmpegCore.runFfmpeg(args, null);
-        boolean ok = Files.exists(Paths.get(out, new String[0]), new LinkOption[0]);
-        return ok ? Map.of("ok", true) : Map.of("ok", false, "error", "normalize failed");
+        Map<String, Object> p = FfmpegCore.runFfmpeg(args, null);
+        boolean ok = Boolean.TRUE.equals(p.get("ok")) && Files.exists(Paths.get(out, new String[0]), new LinkOption[0]);
+        return ok ? Map.of("ok", true) : Map.of("ok", false, "error", p.getOrDefault("error", "normalize failed"));
     }
 
     public static Map<String, Object> concat(List<String> clips, String out) throws Exception {

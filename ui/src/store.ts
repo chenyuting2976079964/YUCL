@@ -70,13 +70,16 @@ export const useAppStore = defineStore("app", {
       if (!fetchOk) {
         return;
       }
-      const hasRunning = this.jobs.some(x => (x.status || "done") === "running");
+      const hasRunning = this.jobs.some(x => {
+        const st = x.status || "done";
+        return st === "running" || st === "queued"; // 排队的任务同样需要轮询（前面任务渲染期间它一直 queued）
+      });
       if (hasRunning && !this.runningPoll) {
         this.runningPoll = true;
         const tick = async () => {
           try {
             await this.loadJobs();
-            if (this.jobs.some(x => (x.status || "done") === "running")) {
+            if (this.jobs.some(x => { const st = x.status || "done"; return st === "running" || st === "queued"; })) {
               setTimeout(tick, 2000);
             } else {
               this.runningPoll = false;
