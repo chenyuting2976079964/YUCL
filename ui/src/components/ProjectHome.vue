@@ -78,30 +78,40 @@ onMounted(load);
 </script>
 
 <style scoped>
-.proj-home { padding: 28px 30px; display: flex; flex-direction: column; gap: 22px; height: 100%; overflow: auto; }
+/* 与编辑器同用全局暗色设计令牌（--panel/--border/--a），首页不再是一套旧色板 */
+.proj-home { padding: 30px 34px; display: flex; flex-direction: column; gap: 24px; height: 100%; overflow: auto; }
 .ph-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.ph-brand { display: flex; gap: 12px; align-items: center; color: var(--fg, #e8ecf4); }
-.ph-brand svg { width: 34px; height: 34px; stroke: var(--accent, #4da3ff); }
-.ph-title { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
-.ph-sub { font-size: 12px; color: var(--dim, #9aa3b6); margin-top: 2px; }
+.ph-brand { display: flex; gap: 13px; align-items: center; color: var(--fg); }
+.ph-brand svg { width: 34px; height: 34px; stroke: var(--a); filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--a) 35%, transparent)); }
+.ph-title { font-size: 23px; font-weight: 700; letter-spacing: .5px; }
+.ph-sub { font-size: 12px; color: var(--dim); margin-top: 3px; }
 .ph-new {
-  display: flex; align-items: center; gap: 10px; padding: 12px 22px; border: none; border-radius: 10px;
-  background: var(--accent, #4da3ff); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
-  transition: filter .15s;
+  display: flex; align-items: center; gap: 10px; padding: 12px 22px; border: none; border-radius: 11px;
+  background: var(--grad); color: #fff; font-size: 14.5px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255,255,255,.15) inset, 0 8px 20px color-mix(in srgb, var(--a) 26%, transparent);
+  transition: transform .15s, filter .15s, box-shadow .15s;
 }
-.ph-new:hover { filter: brightness(1.08); }
-.ph-new-plus { font-size: 18px; }
-.ph-recent-title { font-size: 13px; font-weight: 600; color: var(--dim, #9aa3b6); margin-bottom: 4px; }
-.ph-empty { color: var(--dim, #9aa3b6); font-size: 13px; padding: 14px 4px; }
+.ph-new:hover { filter: brightness(1.06); transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 12px 26px color-mix(in srgb, var(--a) 34%, transparent); }
+.ph-new-plus { font-size: 17px; }
+.ph-recent-title { font-size: 12px; font-weight: 700; color: var(--dim); margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: .1em; }
+.ph-empty { color: var(--dim); font-size: 13px; padding: 16px 4px; }
 .ph-card {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  border: 1px solid var(--border, #263041); border-radius: 10px; padding: 12px 16px;
-  background: var(--card, #1b2230); margin-bottom: 10px; transition: border-color .15s;
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+  background: var(--panel); margin-bottom: 10px; transition: border-color .15s, transform .15s;
+  box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 4px 14px rgba(0,0,0,.22);
 }
-.ph-card:hover { border-color: var(--accent, #4da3ff); }
+.ph-card:hover { border-color: color-mix(in srgb, var(--a) 45%, transparent); transform: translateY(-1px); }
 .ph-card-body { cursor: pointer; flex: 1; min-width: 0; }
-.ph-card-name { font-size: 14px; font-weight: 600; color: var(--fg, #e8ecf4); }
-.ph-card-meta { font-size: 12px; color: var(--dim, #9aa3b6); margin-top: 3px; }
+.ph-card-name { font-size: 14.5px; font-weight: 700; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-card-meta { font-size: 12px; color: var(--dim); margin-top: 4px; }
 .ph-card-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.ph-err { color: var(--danger, #ff6b6b); font-size: 12px; }
+/* 局部按钮覆盖：打开=主色实心（全局 .btn），删除=红色幽灵（全局 .btn 没有 danger 档，此前两按钮同色） */
+.ph-card-actions .btn { width: auto; margin: 0; padding: 8px 16px; font-size: 13px; border-radius: 9px; }
+.ph-card-actions .btn.danger { background: rgba(242,109,109,.07); color: var(--err);
+  border: 1px solid rgba(242,109,109,.35); box-shadow: none; }
+.ph-card-actions .btn.danger:hover { background: var(--err); color: #fff; filter: none; transform: none; }
+.ph-err { color: var(--err); font-size: 12.5px; }
 </style>

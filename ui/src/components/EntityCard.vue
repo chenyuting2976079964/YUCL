@@ -10,7 +10,10 @@
     </div>
     <div class="cb-body">
       <img v-if="entity.imgSrc" class="cb-img" :src="entity.imgSrc" referrerpolicy="no-referrer" @error="onImgErr">
-      <div v-else class="cb-imgph">暂无图片<br>生成或上传</div>
+      <div v-else class="cb-imgph">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10.5" r="1.6"/><path d="M3.5 17.5 8.5 13l4 3.5 3-2.5 4.5 3.5"/></svg>
+        <span>暂无图片<br>生成或上传</span>
+      </div>
       <div class="cb-prompt">
         <template v-if="entity.src === 'prompt'">
           <textarea v-model="entity.prompt" :placeholder="t('desc_ph')"></textarea>

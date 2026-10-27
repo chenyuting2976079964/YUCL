@@ -12,15 +12,16 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 5.5-6S14 16.7 14 20"/><path d="M15 5.5A3.5 3.5 0 0 1 15 12M18 20c0-2.4 1-4.5 3-5.5"/></svg>
         </div>
         <div class="title">YUCL</div>
-        <span v-if="proj" class="proj-chip" :title="proj.name">{{ proj.name }}</span>
         <span class="badge"><span class="dot"></span>{{ provBadge }}</span>
-        <span v-if="proj" class="head-actions">
+      </div>
+      <div class="head ctx" v-if="proj">
+        <span class="proj-chip" :title="proj.name">{{ proj.name }}</span>
+        <span class="head-actions">
           <button class="btn mini" type="button" @click="goHome">{{ t("proj_back") }}</button>
           <button class="btn mini primary" type="button" :disabled="saving" @click="saveProject">{{ saving ? "…" : t("proj_save") }}</button>
-          <span v-if="savedAt" class="saved-at">{{ savedAt }}</span>
         </span>
+        <span v-if="savedAt" class="saved-at">{{ savedAt }}</span>
       </div>
-      <div class="sub">{{ t("app_sub") }}</div>
       <div v-if="store.backendWarn" class="err" style="margin-top:8px">{{ store.backendWarn }}</div>
 
       <!-- 基本流程（主流程）：人物图 → 场景图 → 内容描述 → 生成视频 -->
